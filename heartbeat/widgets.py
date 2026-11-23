@@ -237,6 +237,15 @@ class Sparkline(QWidget):
         self._prune(now)
         self.update()
 
+    def set_series(self, samples: list[tuple[float, int]]) -> None:
+        self._points.clear()
+        now = time.monotonic()
+        for ts, bpm in samples:
+            if now - ts > self.WINDOW_SECONDS + 4:
+                continue
+            self._points.append((ts, bpm))
+        self.update()
+
     def clear(self) -> None:
         self._points.clear()
         self.update()

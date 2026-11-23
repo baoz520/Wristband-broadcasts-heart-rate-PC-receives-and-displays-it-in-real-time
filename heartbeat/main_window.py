@@ -354,14 +354,19 @@ class MainWindow(QMainWindow):
         divider2 = QFrame()
         divider2.setObjectName("Divider")
         lay.addWidget(divider2)
-        row3, self._history_switch = self._switch_row(
-            "历史数据", "查看之前连接手环的历史心率", self.settings.history_mode
-        )
-        lay.addWidget(row3)
+        hist_row = QWidget()
+        hist_row.setFixedHeight(38)
+        hrow = QHBoxLayout(hist_row)
+        hrow.setContentsMargins(0, 0, 0, 0)
+        hrow.addStretch(1)
+        self._history_button = QPushButton("查看历史数据")
+        self._history_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._history_button.clicked.connect(self._on_history_button_clicked)
+        hrow.addWidget(self._history_button)
+        lay.addWidget(hist_row)
 
         self._floating_switch.toggled.connect(self.floatingToggled.emit)
         self._device_switch.toggled.connect(self._on_device_switch)
-        self._history_switch.toggled.connect(self.historyToggled.emit)
         self.set_history_mode(self.settings.history_mode)
         return card
 
@@ -497,9 +502,9 @@ class MainWindow(QMainWindow):
 
     def set_history_mode(self, enabled: bool) -> None:
         self._history_mode = bool(enabled)
-        self._history_switch.blockSignals(True)
-        self._history_switch.setChecked(bool(enabled))
-        self._history_switch.blockSignals(False)
+
+    def _on_history_button_clicked(self) -> None:
+        self._set_history_mode(True)
 
     def set_device_history(self, address: str, samples: list) -> None:
         if not address:
@@ -521,9 +526,9 @@ class MainWindow(QMainWindow):
         ts, bpm = samples[-1]
         zone = heart_rate_zone(bpm)
         color = ZONE_COLORS.get(zone, ACCENT)
-        points = list(self._spark._points)
-        if not points or points[-1][0] != ts or points[-1][1] != bpm:
-            self._spark.add(bpm, ts)
+        self._spark.set_series(
+            [(ts2, bpm2) for ts2, bpm2 in samples if time.monotonic() - ts2 <= self._spark.WINDOW_SECONDS + 4]
+        )
         self._bpm.setText(str(bpm))
         self._bpm.setStyleSheet(f"color: {color};")
         self._heart.set_bpm(bpm, color)
