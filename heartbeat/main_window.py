@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QListWidget,
     QMainWindow,
     QPlainTextEdit,
     QPushButton,
@@ -190,6 +191,7 @@ class MainWindow(QMainWindow):
         self._history_by_device: dict[str, list[list[int]]] = {}
         self._last_seen_address = ""
         self._history: deque[tuple[float, int]] = deque(maxlen=6000)
+        self._sessions: list[dict] = []
 
         self.setWindowTitle("心率监测")
         self.resize(466, 900)
@@ -452,6 +454,15 @@ class MainWindow(QMainWindow):
         self._log.setPlaceholderText("运行日志")
         lay.addWidget(self._log)
 
+        self._session_list = QListWidget()
+        self._session_list.setObjectName("SessionList")
+        self._session_list.setMaximumHeight(92)
+        self._session_list.setStyleSheet(
+            "QListWidget { background: transparent; border: none; } QListWidget::item { padding: 2px 4px; }"
+        )
+        self._session_list.setVisible(bool(self._sessions))
+        lay.addWidget(self._session_list)
+
         card.setVisible(self.settings.device_management)
         return card
 
@@ -628,6 +639,18 @@ class MainWindow(QMainWindow):
     def append_log(self, message: str) -> None:
         stamp = time.strftime("%H:%M:%S")
         self._log.appendPlainText(f"[{stamp}] {message}")
+
+    def set_sessions(self, sessions: list) -> None:
+        self._sessions = [dict(r) for r in (sessions or [])]
+        self._session_list.clear()
+        for record in self._sessions:
+            item = (
+                f"{record.get('name') or record.get('address') or '设备'} · "
+                f"{record.get('start')} - {record.get('end')} · "
+                f"样本 {record.get('samples')} 条 · 平均 {record.get('avg')} · "
+                f"最大 {record.get('max')} · 最后 {record.get('last')}"
+            )
+            self._session_list.addItem(item)
 
     def _update_stats(self) -> None:
         cutoff = time.monotonic() - 600

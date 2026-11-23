@@ -28,6 +28,7 @@ class Settings:
     window_geometry: str = ""
     history_mode: bool = True
     history: dict[str, list[list[int]]] = field(default_factory=dict)
+    history_sessions: list[dict] = field(default_factory=list)
 
     @classmethod
     def path(cls) -> Path:

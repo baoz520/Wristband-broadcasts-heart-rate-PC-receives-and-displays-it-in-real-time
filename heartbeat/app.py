@@ -76,6 +76,8 @@ class Controller(QObject):
         self._history_by_device: dict[str, list[list[int]]] = {
             addr: [list(x) for x in samples] for addr, samples in (self.settings.history or {}).items()
         }
+        self._sessions: list[dict] = [dict(r) for r in (self.settings.history_sessions or [])]
+        self._session: dict | None = None
 
         self._build_tray()
         self._wire()
@@ -313,6 +315,49 @@ class Controller(QObject):
         self.window.set_device_history(address, samples)
         self.floating.set_device_history(address, samples)
 
+        if self._session is None or self._session.get("address") != address:
+            self._session = {
+                "address": address,
+                "name": name or address,
+                "start": int(time.time()),
+                "count": 0,
+                "min": None,
+                "max": None,
+                "sum": 0.0,
+                "last": None,
+            }
+        self._session["count"] = int(self._session.get("count") or 0) + 1
+        self._session["sum"] = float(self._session.get("sum") or 0) + bpm
+        self._session["min"] = bpm if self._session.get("min") is None else min(int(self._session["min"]), bpm)
+        self._session["max"] = bpm if self._session.get("max") is None else max(int(self._session["max"]), bpm)
+        self._session["last"] = bpm
+
+    def _finalize_session(self) -> None:
+        if not self._session:
+            return
+        if not int(self._session.get("count") or 0) > 0:
+            self._session = None
+            return
+        count = int(self._session["count"])
+        self._sessions.append(
+            {
+                "address": self._session.get("address") or "",
+                "name": self._session.get("name") or self._session.get("address") or "设备",
+                "start": int(self._session.get("start") or time.time()),
+                "end": int(time.time()),
+                "samples": count,
+                "min": int(self._session["min"]),
+                "max": int(self._session["max"]),
+                "avg": round(float(self._session.get("sum") or 0.0) / count, 1),
+                "last": int(self._session.get("last") or 0),
+            }
+        )
+        if len(self._sessions) > 50:
+            self._sessions = self._sessions[-50:]
+        self.window.set_sessions(list(self._sessions))
+        self.settings.history_sessions = list(self._sessions)
+        self._session = None
+
     def _on_link_changed(self, state: str, address: str, name: str) -> None:
         self._link_state = state
         self.window.set_link(state, address, name)
@@ -327,6 +372,8 @@ class Controller(QObject):
             if samples:
                 self.window.set_device_history(address, samples)
                 self.floating.set_device_history(address, samples)
+        if state in ("disconnected", "idle", "error"):
+            self._finalize_session()
         if state == "connected":
             self.tray.setToolTip(f"心率监测 · {name or address}")
         elif state in ("idle", "disconnected", "error"):
@@ -374,6 +421,7 @@ class Controller(QObject):
         self.settings.history = {
             addr: [list(x) for x in samples] for addr, samples in self._history_by_device.items() if samples
         }
+        self.settings.history_sessions = list(self._sessions)
         self.settings.save()
 
     def _on_about_to_quit(self) -> None:
