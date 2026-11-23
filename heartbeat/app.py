@@ -105,12 +105,17 @@ class Controller(QObject):
         self._act_float.setCheckable(True)
         self._act_devices = menu.addAction("设备管理")
         self._act_devices.setCheckable(True)
+        self._act_close_prompt = menu.addAction("关闭时询问")
+        self._act_close_prompt.setCheckable(True)
+        self._act_close_prompt.setChecked(bool(self.settings.close_prompt_enabled))
+        self._act_close_prompt.setToolTip("勾选后，点击关闭按钮会先询问最小化还是退出")
         menu.addSeparator()
         self._act_quit = menu.addAction("退出")
 
         self._act_show.triggered.connect(self.show_main)
         self._act_float.toggled.connect(self.set_floating)
         self._act_devices.toggled.connect(self.set_device_management)
+        self._act_close_prompt.toggled.connect(self._set_close_prompt)
         self._act_quit.triggered.connect(self.quit)
         self.tray.setContextMenu(menu)
         self._menu = menu
@@ -126,6 +131,8 @@ class Controller(QObject):
         self.window.disconnectRequested.connect(self.worker.disconnect_device)
         self.window.scanRequested.connect(self._manual_refresh)
         self.window.minimizedToTray.connect(self._on_minimized)
+        self.window.quitRequested.connect(self.quit)
+        self.window.saveSettingsRequested.connect(self._save_settings)
 
         self.floating.openMainRequested.connect(self.show_main)
         self.floating.hideRequested.connect(lambda: self.set_floating(False))
@@ -149,6 +156,9 @@ class Controller(QObject):
         self._act_devices.blockSignals(True)
         self._act_devices.setChecked(self.settings.device_management)
         self._act_devices.blockSignals(False)
+        self._act_close_prompt.blockSignals(True)
+        self._act_close_prompt.setChecked(bool(self.settings.close_prompt_enabled))
+        self._act_close_prompt.blockSignals(False)
 
         self.floating.set_locked(self.settings.floating_locked)
         if self.settings.floating_x >= 0 and self.settings.floating_y >= 0:
@@ -257,6 +267,11 @@ class Controller(QObject):
         self.settings.auto_reconnect = bool(enabled)
         self.worker.set_auto_reconnect(enabled)
         self.window.set_auto_switch(enabled)
+        self._save_settings()
+
+    def _set_close_prompt(self, enabled: bool) -> None:
+        """托盘菜单可重新开启「关闭时询问」，避免不再提示后无法改回。"""
+        self.settings.close_prompt_enabled = bool(enabled)
         self._save_settings()
 
     def _set_history_mode(self, enabled: bool) -> None:

@@ -4,30 +4,31 @@ from __future__ import annotations
 
 import time
 from collections import deque
-from typing import Optional
 
-from PySide6.QtCore import QByteArray, QTimer, Qt, Signal
+from PySide6.QtCore import QByteArray, QEvent, QTimer, Qt, Signal
 from PySide6.QtGui import QCloseEvent, QFont, QFontMetrics
 from PySide6.QtWidgets import (
+    QDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
     QListWidget,
     QMainWindow,
     QPlainTextEdit,
-    QPushButton,
     QScrollArea,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
 
+from .chrome import CloseDialog, RootPanel, TitleBar
 from .ble import DeviceInfo
 from .hr import heart_rate_zone
 from .theme import ACCENT, MUTED, ZONE_COLORS
 from .widgets import (
-    BrandMark,
     PulseHeart,
+    RaisedButton,
+    SoftCard,
     Sparkline,
     SignalBars,
     StatusPill,
@@ -80,7 +81,7 @@ class DeviceRow(QFrame):
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self.setObjectName("DeviceRow")
-        self.setFixedHeight(56)
+        self.setFixedHeight(62)
         self.address = ""
         self.name = ""
 
@@ -107,8 +108,8 @@ class DeviceRow(QFrame):
         self._bars = SignalBars()
         lay.addWidget(self._bars, 0, Qt.AlignmentFlag.AlignVCenter)
 
-        self._button = QPushButton("连接")
-        self._button.setFixedSize(62, 27)
+        self._button = RaisedButton("连接")
+        self._button.setFixedSize(64, 30)
         self._button.setCursor(Qt.CursorShape.PointingHandCursor)
         self._button.clicked.connect(self._on_click)
         lay.addWidget(self._button, 0, Qt.AlignmentFlag.AlignVCenter)
@@ -154,10 +155,7 @@ class DeviceRow(QFrame):
             self._button.setText(text)
         if self._button.isEnabled() != enabled:
             self._button.setEnabled(enabled)
-        if self._button.objectName() != name:
-            self._button.setObjectName(name)
-            self._button.style().unpolish(self._button)
-            self._button.style().polish(self._button)
+        self._button.setProperty("danger", connected)
 
         if self.property("connected") != connected:
             self.setProperty("connected", connected)
@@ -174,6 +172,8 @@ class MainWindow(QMainWindow):
     disconnectRequested = Signal()
     scanRequested = Signal()
     minimizedToTray = Signal()
+    quitRequested = Signal()
+    saveSettingsRequested = Signal()
 
     STATE_TEXT = STATE_LABEL
 
@@ -194,6 +194,8 @@ class MainWindow(QMainWindow):
         self._sessions: list[dict] = []
 
         self.setWindowTitle("心率监测")
+        self.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.resize(466, 900)
         self.setMinimumSize(420, 640)
         self._build_ui()
@@ -205,55 +207,48 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------------ UI
     def _build_ui(self) -> None:
-        scroll = QScrollArea(self)
+        root = RootPanel(self)
+        self.setCentralWidget(root)
+        root.addWidget(self._build_header())
+
+        scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.viewport().setAutoFillBackground(False)
-        scroll.setStyleSheet("QScrollArea, QScrollArea > QWidget > QWidget { background: transparent; }")
-        self.setCentralWidget(scroll)
+        scroll.setStyleSheet(
+            "QScrollArea, QScrollArea > QWidget > QWidget { background: transparent; }"
+        )
+        root.addWidget(scroll)
 
         body = QWidget()
         scroll.setWidget(body)
         outer = QVBoxLayout(body)
-        outer.setContentsMargins(16, 12, 16, 12)
+        outer.setContentsMargins(14, 6, 14, 2)
         outer.setSpacing(10)
 
-        outer.addLayout(self._build_header())
         outer.addWidget(self._build_hero())
         outer.addWidget(self._build_switches())
         self._device_card = self._build_device_panel()
         outer.addWidget(self._device_card)
-        outer.addStretch(1)
 
-        self._footer = QLabel("关闭窗口后隐藏到托盘，心率监测仍在后台运行")
-        self._footer.setObjectName("Sub")
-        self._footer.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-        outer.addWidget(self._footer)
+        footer = QLabel("关闭时可选择最小化到托盘或直接退出")
+        footer.setObjectName("Sub")
+        footer.setContentsMargins(0, 0, 0, 6)
+        footer.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        outer.addWidget(footer)
 
-    def _build_header(self) -> QHBoxLayout:
-        row = QHBoxLayout()
-        row.setContentsMargins(2, 0, 2, 0)
-        row.setSpacing(11)
-        row.addWidget(BrandMark(42))
-
-        col = QVBoxLayout()
-        col.setContentsMargins(0, 2, 0, 0)
-        col.setSpacing(0)
-        title = QLabel("心率监测")
-        title.setObjectName("H1")
-        col.addWidget(title)
-        sub = QLabel("BLE 手环 · 实时广播数据")
-        sub.setObjectName("Sub")
-        col.addWidget(sub)
-        row.addLayout(col, 1)
-
+    def _build_header(self) -> TitleBar:
+        bar = TitleBar("心率监测", "BLE 手环 · 实时广播数据")
         self._pill = StatusPill()
-        row.addWidget(self._pill, 0, Qt.AlignmentFlag.AlignVCenter)
-        return row
+        bar.set_trailing(self._pill)
+        bar.minimizeClicked.connect(self.minimize_to_tray)
+        bar.maximizeClicked.connect(self._toggle_maximize)
+        bar.closeClicked.connect(self.show_close_popup)
+        self._titlebar = bar
+        return bar
 
     def _build_hero(self) -> QWidget:
-        card = QFrame()
-        card.setObjectName("Hero")
+        card = SoftCard(None, object_name="Hero")
         lay = QVBoxLayout(card)
         lay.setContentsMargins(20, 15, 20, 15)
         lay.setSpacing(4)
@@ -334,8 +329,7 @@ class MainWindow(QMainWindow):
         return value
 
     def _build_switches(self) -> QWidget:
-        card = QFrame()
-        card.setObjectName("Card")
+        card = SoftCard(None, object_name="Card")
         lay = QVBoxLayout(card)
         lay.setContentsMargins(18, 5, 18, 5)
         lay.setSpacing(0)
@@ -359,7 +353,7 @@ class MainWindow(QMainWindow):
         hrow = QHBoxLayout(hist_row)
         hrow.setContentsMargins(0, 0, 0, 0)
         hrow.addStretch(1)
-        self._history_button = QPushButton("查看历史数据")
+        self._history_button = RaisedButton("查看历史数据")
         self._history_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self._history_button.clicked.connect(self._on_history_button_clicked)
         hrow.addWidget(self._history_button)
@@ -394,8 +388,7 @@ class MainWindow(QMainWindow):
         return row, switch
 
     def _build_device_panel(self) -> QWidget:
-        card = QFrame()
-        card.setObjectName("Card")
+        card = SoftCard(None, object_name="Card")
         lay = QVBoxLayout(card)
         lay.setContentsMargins(16, 12, 16, 14)
         lay.setSpacing(8)
@@ -409,8 +402,7 @@ class MainWindow(QMainWindow):
         self._scan_hint.setObjectName("Sub")
         head.addWidget(self._scan_hint, 0, Qt.AlignmentFlag.AlignVCenter)
         head.addStretch(1)
-        refresh = QPushButton("刷新")
-        refresh.setObjectName("Ghost")
+        refresh = RaisedButton("刷新")
         refresh.setCursor(Qt.CursorShape.PointingHandCursor)
         refresh.clicked.connect(self.scanRequested.emit)
         head.addWidget(refresh)
@@ -418,7 +410,7 @@ class MainWindow(QMainWindow):
 
         self._device_scroll = QScrollArea()
         self._device_scroll.setWidgetResizable(True)
-        self._device_scroll.setFixedHeight(190)
+        self._device_scroll.setFixedHeight(184)
         self._device_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         inner = QWidget()
         self._device_scroll.setWidget(inner)
@@ -504,7 +496,8 @@ class MainWindow(QMainWindow):
         self._history_mode = bool(enabled)
 
     def _on_history_button_clicked(self) -> None:
-        self._set_history_mode(True)
+        self.set_history_mode(True)
+        self.historyToggled.emit(True)
 
     def set_device_history(self, address: str, samples: list) -> None:
         if not address:
@@ -719,8 +712,52 @@ class MainWindow(QMainWindow):
                 self._pill.set_state("idle", "未连接")
 
     # ------------------------------------------------------------------ 事件
+    def changeEvent(self, event) -> None:  # noqa: N802
+        if event.type() == QEvent.Type.WindowStateChange:
+            if hasattr(self, "_titlebar"):
+                self._titlebar.set_maximized(self.isMaximized())
+            if self.isMinimized():
+                event.accept()
+                if bool(getattr(self.settings, "close_minimize_to_tray", True)):
+                    self.hide()
+                self.minimizedToTray.emit()
+                return
+        super().changeEvent(event)
+
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802
+        event.ignore()
         self.settings.window_geometry = bytes(self.saveGeometry().toBase64()).decode("ascii")
+        if not bool(getattr(self.settings, "close_prompt_enabled", True)):
+            self._apply_close_action(getattr(self.settings, "close_default_action", "minimize"))
+            return
+        self.show_close_popup()
+
+    def show_close_popup(self) -> None:
+        """点击自绘关闭按钮时：弹出「最小化 / 直接关闭」与「不再提示」勾选框。"""
+        dialog = CloseDialog(self)
+        dialog.center_on(self)
+        if dialog.exec() != QDialog.DialogCode.Accepted or not dialog.action:
+            return
+        action = dialog.action
+        if dialog.remember:
+            self.settings.close_prompt_enabled = False
+            self.settings.close_default_action = action
+            self.saveSettingsRequested.emit()
+        self._apply_close_action(action)
+
+    def _apply_close_action(self, action: str) -> None:
+        if action == "quit":
+            self.quitRequested.emit()
+        else:
+            self.minimize_to_tray()
+
+    def minimize_to_tray(self) -> None:
+        """最小化按钮 / 关闭弹窗的「最小化」：隐藏窗口但保持后台监测。"""
         self.hide()
         self.minimizedToTray.emit()
-        event.ignore()
+
+    def _toggle_maximize(self) -> None:
+        if self.isMaximized():
+            self.showNormal()
+        else:
+            self.showMaximized()

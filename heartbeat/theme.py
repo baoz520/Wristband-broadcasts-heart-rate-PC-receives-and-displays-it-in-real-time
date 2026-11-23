@@ -1,18 +1,28 @@
-"""集中管理配色与全局样式。"""
+"""集中管理配色与全局样式（新拟物派 · Neumorphism light）。"""
 
 from __future__ import annotations
 
 from PySide6.QtGui import QColor, QFont, QPalette
 from PySide6.QtWidgets import QApplication
 
-ACCENT = "#ff4d6d"
-ACCENT_SOFT = "#ff8fa3"
-BG = "#0b0f15"
-CARD = "#121820"
-CARD_ALT = "#0e141d"
-BORDER = "#1d2635"
-TEXT = "#e9eef7"
-MUTED = "#7f8ea3"
+# ------------------------------------------------------------------ 新拟物派 token
+BASE = "#e0e5ec"            # --color-base：页面与所有元素的共同基底
+SHADOW_GREY = "#b8bcc2"     # --color-shadow-grey：右下阴影色
+HIGHLIGHT = "#ffffff"       # --color-highlight：左上高光色
+BLURPLE = "#6d5dfc"         # --color-blurple：主行动与选中态
+CORAL = "#ff6b6b"           # --color-coral：警示与删除
+MINT = "#4ecdc4"            # --color-mint：成功与数据正向
+INK = "#3d4451"             # --color-text：深色文字只出现在内容层
+
+ACCENT = BLURPLE            # 心率主色 / 激活态（紫罗兰）
+ACCENT_SOFT = "#8a76f0"     # 紫罗兰的柔和变体（光晕）
+BG = BASE
+CARD = BASE
+CARD_ALT = BASE
+BORDER = SHADOW_GREY
+TEXT = INK
+MUTED = "#6f7a90"           # 界面层中灰文字
+
 GREEN = "#34d399"
 AMBER = "#fbbf24"
 RED = "#f87171"
@@ -25,141 +35,129 @@ ZONE_COLORS = {
     "峰值": "#ff4d6d",
 }
 
+INTER_FONT = '"Inter", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI", sans-serif'
+
 QSS = f"""
-QMainWindow, QDialog {{
-    background: {BG};
-}}
-QWidget {{
-    color: {TEXT};
-}}
-QLabel {{
+/* 无边框窗口整体透明；新拟物卡片由自绘控件铺基底并画阴影 */
+QMainWindow, QDialog, QFrame#CloseCard {{
     background: transparent;
 }}
-QFrame#Card {{
-    background: {CARD};
-    border: 1px solid {BORDER};
-    border-radius: 18px;
+QWidget {{
+    color: {INK};
 }}
-QFrame#Hero {{
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-        stop:0 #1c1420, stop:0.55 #141820, stop:1 #10151d);
-    border: 1px solid #2a2130;
-    border-radius: 20px;
+QFrame#Hero, QFrame#Card {{
+    background: {BASE};
+    border: none;
+    border-radius: 24px;
 }}
 QFrame#DeviceRow {{
-    background: {CARD_ALT};
-    border: 1px solid #1a2331;
-    border-radius: 12px;
-}}
-QFrame#DeviceRow[connected="true"] {{
-    background: #201521;
-    border: 1px solid #4a2331;
+    background: {BASE};
+    border: none;
+    border-radius: 16px;
 }}
 QFrame#Divider {{
-    background: #1b2433;
+    background: {SHADOW_GREY};
     border: none;
     max-height: 1px;
     min-height: 1px;
 }}
 QLabel#H1 {{
-    font-size: 17px;
+    font-size: 20px;
     font-weight: 600;
+    color: {INK};
 }}
 QLabel#H2 {{
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 600;
+    color: {INK};
 }}
 QLabel#Sub {{
     color: {MUTED};
-    font-size: 11px;
+    font-size: 12px;
+    font-weight: 400;
 }}
 QLabel#CardTitle {{
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 600;
+    color: {INK};
 }}
 QLabel#StatLabel {{
     color: {MUTED};
-    font-size: 11px;
+    font-size: 12px;
+    font-weight: 400;
 }}
 QLabel#StatValue {{
-    font-size: 15px;
+    font-size: 16px;
     font-weight: 600;
+    color: {INK};
 }}
 QLabel#DeviceName {{
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 600;
+    color: {INK};
 }}
 QLabel#DeviceMeta {{
     color: {MUTED};
-    font-size: 11px;
+    font-size: 12px;
+    font-weight: 400;
 }}
 QLabel#Empty {{
     color: {MUTED};
-    font-size: 12px;
+    font-size: 14px;
+    font-weight: 400;
     padding: 18px 10px;
 }}
 QLabel#Pill {{
-    border-radius: 11px;
-    padding: 3px 10px;
-    font-size: 11px;
+    border-radius: 999px;
+    padding: 4px 12px;
 }}
 QLabel#Badge {{
-    background: rgba(255, 77, 109, 0.13);
-    color: #ff9aae;
-    border-radius: 6px;
-    padding: 2px 6px;
-    font-size: 10px;
+    background: {BASE};
+    color: {BLURPLE};
+    border: none;
+    border-radius: 999px;
+    padding: 3px 10px;
+    font-size: 12px;
+    font-weight: 500;
 }}
 QLabel#Battery {{
     color: {MUTED};
-    font-size: 11px;
+    font-size: 12px;
+    font-weight: 400;
 }}
 QPushButton {{
-    background: #1a2330;
-    border: 1px solid #273245;
-    border-radius: 9px;
-    padding: 5px 14px;
-    color: {TEXT};
-}}
-QPushButton:hover {{
-    background: #223041;
+    background: {BASE};
+    border: none;
+    border-radius: 16px;
+    padding: 6px 16px;
+    color: {INK};
+    font-size: 13px;
+    font-weight: 500;
 }}
 QPushButton:pressed {{
-    background: #16202c;
+    background: #d5dbe8;
 }}
 QPushButton:disabled {{
-    color: #5b6879;
-    background: #141b24;
-    border-color: #1b2431;
+    color: #9aa3b5;
+    background: #d8deea;
 }}
 QPushButton#Primary {{
-    background: {ACCENT};
+    background: {BLURPLE};
     border: none;
+    border-radius: 16px;
+    padding: 6px 16px;
     color: #ffffff;
+    font-size: 13px;
     font-weight: 600;
 }}
-QPushButton#Primary:hover {{
-    background: #ff647f;
-}}
 QPushButton#Ghost {{
-    background: transparent;
-    border: 1px solid #2a3444;
-    color: #c7d1df;
+    background: {BASE};
+    border: none;
+    border-radius: 16px;
+    color: {INK};
     font-size: 11px;
+    font-weight: 500;
     padding: 4px 11px;
-}}
-QPushButton#Ghost:hover {{
-    background: #1b2431;
-}}
-QPushButton#Danger {{
-    background: transparent;
-    border: 1px solid #48232f;
-    color: #ff8fa3;
-    font-size: 11px;
-    padding: 4px 11px;
-}}
-QPushButton#Danger:hover {{
-    background: #2a1720;
 }}
 QPushButton#Tiny {{
     background: transparent;
@@ -168,7 +166,7 @@ QPushButton#Tiny {{
     padding: 2px 4px;
 }}
 QPushButton#Tiny:hover {{
-    color: {ACCENT_SOFT};
+    color: {BLURPLE};
 }}
 QScrollArea {{
     border: none;
@@ -183,12 +181,12 @@ QScrollBar:vertical {{
     margin: 2px;
 }}
 QScrollBar::handle:vertical {{
-    background: #2a3546;
+    background: {SHADOW_GREY};
     border-radius: 3px;
     min-height: 24px;
 }}
 QScrollBar::handle:vertical:hover {{
-    background: #3a475c;
+    background: #9aa3b5;
 }}
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
 QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
@@ -196,41 +194,89 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
     background: transparent;
 }}
 QPlainTextEdit#Log {{
-    background: #0b1118;
-    border: 1px solid #17202c;
-    border-radius: 10px;
-    color: #8c9aad;
+    background: {BASE};
+    border: none;
+    border-radius: 12px;
+    color: {MUTED};
     font-family: "Cascadia Mono", "Consolas";
     font-size: 10px;
     padding: 6px;
-    selection-background-color: #3a2230;
 }}
 QPlainTextEdit#Log QScrollBar:vertical {{
     width: 4px;
 }}
+QListWidget#SessionList {{
+    background: transparent;
+    border: none;
+}}
+QListWidget#SessionList::item {{
+    padding: 3px 6px;
+}}
 QMenu {{
-    background: #161d27;
-    border: 1px solid #273245;
-    border-radius: 10px;
+    background: {BASE};
+    border: none;
+    border-radius: 14px;
     padding: 6px;
 }}
 QMenu::item {{
     padding: 6px 22px 6px 24px;
-    border-radius: 6px;
+    border-radius: 8px;
 }}
 QMenu::item:selected {{
-    background: #232f40;
+    background: rgba(109, 93, 252, 0.14);
+    color: {BLURPLE};
 }}
 QMenu::separator {{
     height: 1px;
-    background: #273245;
+    background: {SHADOW_GREY};
     margin: 4px 8px;
 }}
 QToolTip {{
-    background: #1b2431;
-    color: {TEXT};
-    border: 1px solid #2b394d;
+    background: {BASE};
+    color: {INK};
+    border: none;
+    border-radius: 10px;
     padding: 4px 8px;
+}}
+"""
+
+BUTTON_QSS = f"""
+QPushButton {{
+    background: {BASE};
+    border: none;
+    border-radius: 16px;
+    padding: 6px 16px;
+    color: {INK};
+    font-size: 13px;
+    font-weight: 500;
+}}
+QPushButton:hover {{
+    background: #d8deea;
+}}
+QPushButton:pressed {{
+    background: #d0d7e6;
+}}
+QPushButton:disabled {{
+    color: #9aa3b5;
+    background: #d8deea;
+}}
+QPushButton#Primary {{
+    background: {BLURPLE};
+    border: none;
+    border-radius: 16px;
+    padding: 6px 16px;
+    color: #ffffff;
+    font-size: 13px;
+    font-weight: 600;
+}}
+QPushButton#Tiny {{
+    background: transparent;
+    border: none;
+    color: {MUTED};
+    padding: 2px 4px;
+}}
+QPushButton#Tiny:hover {{
+    color: {BLURPLE};
 }}
 """
 
@@ -238,21 +284,21 @@ QToolTip {{
 def apply_theme(app: QApplication) -> None:
     app.setStyle("Fusion")
     base_font = QFont()
-    base_font.setFamilies(["Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI"])
-    base_font.setPointSize(9)
+    base_font.setFamilies(["Inter", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI"])
+    base_font.setPointSize(10)
     app.setFont(base_font)
     palette = QPalette()
-    palette.setColor(QPalette.ColorRole.Window, QColor(BG))
-    palette.setColor(QPalette.ColorRole.WindowText, QColor(TEXT))
-    palette.setColor(QPalette.ColorRole.Base, QColor(CARD_ALT))
-    palette.setColor(QPalette.ColorRole.AlternateBase, QColor(CARD))
-    palette.setColor(QPalette.ColorRole.Text, QColor(TEXT))
-    palette.setColor(QPalette.ColorRole.Button, QColor("#1a2330"))
-    palette.setColor(QPalette.ColorRole.ButtonText, QColor(TEXT))
-    palette.setColor(QPalette.ColorRole.Highlight, QColor(ACCENT))
+    palette.setColor(QPalette.ColorRole.Window, QColor(BASE))
+    palette.setColor(QPalette.ColorRole.WindowText, QColor(INK))
+    palette.setColor(QPalette.ColorRole.Base, QColor(BASE))
+    palette.setColor(QPalette.ColorRole.AlternateBase, QColor(BASE))
+    palette.setColor(QPalette.ColorRole.Text, QColor(INK))
+    palette.setColor(QPalette.ColorRole.Button, QColor(BASE))
+    palette.setColor(QPalette.ColorRole.ButtonText, QColor(INK))
+    palette.setColor(QPalette.ColorRole.Highlight, QColor(BLURPLE))
     palette.setColor(QPalette.ColorRole.HighlightedText, QColor("#ffffff"))
-    palette.setColor(QPalette.ColorRole.ToolTipBase, QColor("#1b2431"))
-    palette.setColor(QPalette.ColorRole.ToolTipText, QColor(TEXT))
+    palette.setColor(QPalette.ColorRole.ToolTipBase, QColor(BASE))
+    palette.setColor(QPalette.ColorRole.ToolTipText, QColor(INK))
     palette.setColor(QPalette.ColorRole.PlaceholderText, QColor(MUTED))
     app.setPalette(palette)
     app.setStyleSheet(QSS)

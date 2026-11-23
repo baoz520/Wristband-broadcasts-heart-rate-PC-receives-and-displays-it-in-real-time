@@ -8,3 +8,4 @@ heartbeat_monitor.spec
 *.exe
 settings.json
 *.db
+.workbuddy/

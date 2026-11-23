@@ -1,9 +1,16 @@
-"""自绘控件：开关、心形、走势图、信号强度、状态胶囊。"""
+"""自绘控件：新拟物阴影基元、开关、心形、走势图、状态胶囊与按钮。
+
+材质规则（与风格规范一致）：
+- 元素与页面共用基底色 #e0e5ec，层级只由阴影承担。
+- 固定左上高光 / 右下暗影：凸起用外阴影对，凹陷用 inset 阴影对。
+- 阴影通过真实高斯模糊绘制，不使用纯黑，也不使用实色描边。
+"""
 
 from __future__ import annotations
 
 import time
 from collections import deque
+from functools import lru_cache
 
 from PySide6.QtCore import (
     Property,
@@ -16,8 +23,10 @@ from PySide6.QtCore import (
     QTimer,
 )
 from PySide6.QtGui import (
+    QBrush,
     QColor,
     QFont,
+    QFontMetrics,
     QIcon,
     QLinearGradient,
     QPainter,
@@ -25,9 +34,158 @@ from PySide6.QtGui import (
     QPen,
     QPixmap,
 )
-from PySide6.QtWidgets import QAbstractButton, QLabel, QSizePolicy, QWidget
+from PySide6.QtWidgets import (
+    QAbstractButton,
+    QFrame,
+    QGraphicsBlurEffect,
+    QGraphicsScene,
+    QLabel,
+    QPushButton,
+    QSizePolicy,
+    QWidget,
+)
 
-from .theme import ACCENT, MUTED, TEXT, ZONE_COLORS
+from .theme import (
+    ACCENT,
+    BASE,
+    BLURPLE,
+    CORAL,
+    HIGHLIGHT,
+    INK,
+    MUTED,
+    SHADOW_GREY,
+    ZONE_COLORS,
+)
+
+# ---------------------------------------------------------------- 阴影基元
+# CSS 的 8px 8px 16px 阴影在 Qt 里没有直接的样式表写法，这里用缓存的
+# 高斯模糊像素图复刻，保证所有控件使用同一套光源与模糊值。
+
+
+def rgba(color: str, alpha: int) -> QColor:
+    """从 hex 色值构造带透明度的颜色（兼容各版本 PySide6）。"""
+    c = QColor(color)
+    c.setAlpha(max(0, min(255, int(alpha))))
+    return c
+
+
+@lru_cache(maxsize=160)
+def blurred_shape(
+    w: int, h: int, radius: int, ox: int, oy: int, blur: int, color: str, alpha: int,
+    hollow: bool = False,
+):
+    """返回 (模糊后的圆角矩形像素图, 四周留白)，供外阴影使用。
+
+    hollow=True 时只保留轮廓带再模糊，避免实心偏移阴影在圆角处露出亮块。
+    """
+    w, h = max(1, int(w)), max(1, int(h))
+    pad = int(blur * 2.6 + max(abs(ox), abs(oy))) + 6
+    pm = QPixmap(w + pad * 2, h + pad * 2)
+    pm.fill(Qt.GlobalColor.transparent)
+
+    painter = QPainter(pm)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    c = QColor(color)
+    c.setAlpha(max(0, min(255, alpha)))
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(c)
+    painter.drawRoundedRect(QRectF(pad + ox, pad + oy, w, h), radius, radius)
+
+    if hollow:
+        band = max(4.0, blur / 2.0)
+        iw, ih = w - band * 2, h - band * 2
+        if iw > 0 and ih > 0:
+            painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Clear)
+            painter.drawRoundedRect(
+                QRectF(pad + ox + band, pad + oy + band, iw, ih),
+                max(0.0, radius - band), max(0.0, radius - band),
+            )
+            painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
+    painter.end()
+
+    scene = QGraphicsScene()
+    scene.setSceneRect(QRectF(0, 0, pm.width(), pm.height()))
+    item = scene.addPixmap(pm)
+    effect = QGraphicsBlurEffect()
+    effect.setBlurRadius(max(0.5, float(blur)))
+    item.setGraphicsEffect(effect)
+
+    out = QPixmap(pm.size())
+    out.fill(Qt.GlobalColor.transparent)
+    target = QPainter(out)
+    scene.render(target)
+    target.end()
+    return out, pad
+
+
+def draw_raised(
+    painter: QPainter,
+    rect: QRectF,
+    radius: float,
+    *,
+    distance: float = 8.0,
+    blur: float = 16.0,
+    grey_alpha: int = 110,
+    white_alpha: int = 150,
+) -> None:
+    """凸起：右下冷灰暗影 + 左上高光，最后铺同色基底。"""
+    d, b = int(round(distance)), int(round(blur))
+    r = int(round(radius))
+    w, h = int(round(rect.width())), int(round(rect.height()))
+    grey, pad_g = blurred_shape(w, h, r, d, d, b, SHADOW_GREY, grey_alpha, hollow=True)
+    white, pad_w = blurred_shape(w, h, r, -d, -d, b, HIGHLIGHT, white_alpha, hollow=True)
+
+    # 阴影只画在圆角轮廓之外，避免高光从圆角切口漏进卡片里形成白色楔形
+    margin = max(pad_g, pad_w) + 4
+    outer = QPainterPath()
+    outer.addRect(rect.adjusted(-margin, -margin, margin, margin))
+    surface = QPainterPath()
+    surface.addRoundedRect(rect, radius, radius)
+    painter.save()
+    painter.setClipPath(outer.subtracted(surface))
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.drawPixmap(QPointF(rect.x() - pad_g, rect.y() - pad_g), grey)
+    painter.drawPixmap(QPointF(rect.x() - pad_w, rect.y() - pad_w), white)
+    painter.restore()
+
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor(BASE))
+    painter.drawRoundedRect(rect, radius, radius)
+
+
+def draw_recessed(painter: QPainter, rect: QRectF, radius: float, *, depth: float = 9.0) -> None:
+    """凹陷：沿内缘的左上暗影 + 右下高光，元素本身仍是基底色。"""
+    path = QPainterPath()
+    path.addRoundedRect(rect, radius, radius)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor(BASE))
+    painter.drawPath(path)
+
+    painter.save()
+    painter.setClipPath(path)
+    band = max(4.0, min(depth * 2.4, rect.width() / 2.0, rect.height() / 2.0))
+    l, t, rgt, btm = rect.left(), rect.top(), rect.right(), rect.bottom()
+
+    g1 = QLinearGradient(l, t, l, t + band)
+    g1.setColorAt(0.0, rgba(SHADOW_GREY, 165))
+    g1.setColorAt(1.0, rgba(SHADOW_GREY, 0))
+    painter.fillRect(QRectF(l, t, rect.width(), band), QBrush(g1))
+
+    g2 = QLinearGradient(l, t, l + band, t)
+    g2.setColorAt(0.0, rgba(SHADOW_GREY, 140))
+    g2.setColorAt(1.0, rgba(SHADOW_GREY, 0))
+    painter.fillRect(QRectF(l, t, band, rect.height()), QBrush(g2))
+
+    g3 = QLinearGradient(rgt, btm, rgt, btm - band)
+    g3.setColorAt(0.0, rgba(HIGHLIGHT, 215))
+    g3.setColorAt(1.0, rgba(HIGHLIGHT, 0))
+    painter.fillRect(QRectF(l, btm - band, rect.width(), band), QBrush(g3))
+
+    g4 = QLinearGradient(rgt, btm, rgt - band, btm)
+    g4.setColorAt(0.0, rgba(HIGHLIGHT, 195))
+    g4.setColorAt(1.0, rgba(HIGHLIGHT, 0))
+    painter.fillRect(QRectF(rgt - band, t, band, rect.height()), QBrush(g4))
+    painter.restore()
 
 
 def heart_path(rect: QRectF) -> QPainterPath:
@@ -54,11 +212,13 @@ def make_heart_pixmap(size: int = 64, on_dark: bool = False) -> QPixmap:
     pm.fill(Qt.GlobalColor.transparent)
     p = QPainter(pm)
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    bg = QColor("#151b25") if on_dark else QColor(BASE)
+    ink = QColor(ACCENT) if on_dark else QColor(INK)
     if on_dark:
         p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QColor("#151b25"))
+        p.setBrush(bg)
         p.drawRoundedRect(QRectF(0, 0, size, size), size * 0.28, size * 0.28)
-    p.setBrush(QColor(ACCENT))
+    p.setBrush(ink)
     p.setPen(Qt.PenStyle.NoPen)
     inset = size * 0.17
     p.drawPath(heart_path(QRectF(inset, inset * 1.05, size - inset * 2, size - inset * 2.1)))
@@ -74,17 +234,17 @@ def make_app_icon() -> QIcon:
 
 
 class ToggleSwitch(QAbstractButton):
-    """iOS 风格开关，带滑动动画。"""
+    """新拟物软开关：凹陷轨道 + 凸起旋钮，开启填紫罗兰。"""
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self.setCheckable(True)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setFixedSize(48, 28)
+        self.setFixedSize(48, 32)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._offset = 0.0
         self._anim = QPropertyAnimation(self, b"offset", self)
-        self._anim.setDuration(170)
+        self._anim.setDuration(200)
         self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
         self.toggled.connect(self._animate)
 
@@ -111,35 +271,36 @@ class ToggleSwitch(QAbstractButton):
             self.update()
 
     def sizeHint(self) -> QSize:
-        return QSize(48, 28)
+        return QSize(48, 32)
 
     def paintEvent(self, event) -> None:  # noqa: N802
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        rect = QRectF(0.5, 0.5, self.width() - 1, self.height() - 1)
-        radius = rect.height() / 2
-
-        off = QColor("#2a3442")
-        on = QColor(ACCENT)
+        w, h = self.width(), self.height()
+        if w <= 0 or h <= 0:
+            p.end()
+            return
+        radius = min(h / 2.0, 16.0)
         t = self._offset
-        track = QColor(
-            int(off.red() + (on.red() - off.red()) * t),
-            int(off.green() + (on.green() - off.green()) * t),
-            int(off.blue() + (on.blue() - off.blue()) * t),
-        )
-        if not self.isEnabled():
-            track.setAlpha(90)
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(track)
-        p.drawRoundedRect(rect, radius, radius)
+        on = self.isChecked()
+        knob = 24.0
+        x = 3.0 + (w - 6.0 - knob) * t
+        y = (h - knob) / 2.0
 
-        knob_d = rect.height() - 6
-        x = rect.x() + 3 + (rect.width() - knob_d - 6) * t
-        knob = QRectF(x, rect.y() + 3, knob_d, knob_d)
-        p.setBrush(QColor(0, 0, 0, 60))
-        p.drawEllipse(knob.translated(0, 1))
-        p.setBrush(QColor("#ffffff") if self.isEnabled() else QColor("#9aa6b5"))
-        p.drawEllipse(knob)
+        track = QRectF(0, 0, w, h)
+        draw_recessed(p, track, radius, depth=5)
+
+        knob_rect = QRectF(x, y, knob, knob)
+        draw_raised(
+            p, knob_rect, knob / 2.0,
+            distance=3.0, blur=6.0, grey_alpha=95, white_alpha=190,
+        )
+        fill_color = QColor(BLURPLE) if (on and self.isEnabled()) else QColor(BASE)
+        if not self.isEnabled():
+            fill_color = QColor("#c3ccd9")
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(fill_color)
+        p.drawRoundedRect(knob_rect.adjusted(3, 3, -3, -3), (knob - 6) / 2.0, (knob - 6) / 2.0)
         p.end()
 
 
@@ -207,7 +368,7 @@ class PulseHeart(QWidget):
             side * 2 * scale,
         )
         if self._bpm <= 0:
-            p.setBrush(QColor("#232d3b"))
+            p.setBrush(QColor("#b9c2d0"))
         else:
             glow = QColor(self._color)
             glow.setAlpha(int(26 + 60 * self._phase))
@@ -264,8 +425,7 @@ class Sparkline(QWidget):
         left, right, top, bottom = 2.0, self.width() - 2.0, 8.0, self.height() - 18.0
         plot = QRectF(left, top, max(1.0, right - left), max(1.0, bottom - top))
 
-        # 基线网格
-        grid_pen = QPen(QColor("#1d2735"), 1)
+        grid_pen = QPen(rgba(SHADOW_GREY, 90), 1)
         grid_pen.setStyle(Qt.PenStyle.DotLine)
         p.setPen(grid_pen)
         for i in range(3):
@@ -274,8 +434,8 @@ class Sparkline(QWidget):
 
         vals = [v for _, v in self._points]
         if len(vals) < 2:
-            p.setPen(QColor("#4a5769"))
-            p.setFont(QFont("Microsoft YaHei UI", 9))
+            p.setPen(QColor(MUTED))
+            p.setFont(QFont("Inter", 9))
             p.drawText(plot, Qt.AlignmentFlag.AlignCenter, "等待心率数据…")
             p.end()
             return
@@ -305,8 +465,8 @@ class Sparkline(QWidget):
         fill.lineTo(pts[-1].x(), plot.bottom())
         fill.closeSubpath()
         grad = QLinearGradient(0, plot.top(), 0, plot.bottom())
-        grad.setColorAt(0.0, QColor(255, 77, 109, 76))
-        grad.setColorAt(1.0, QColor(255, 77, 109, 4))
+        grad.setColorAt(0.0, rgba(BLURPLE, 40))
+        grad.setColorAt(1.0, rgba(BLURPLE, 4))
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(grad)
         p.drawPath(fill)
@@ -323,13 +483,13 @@ class Sparkline(QWidget):
 
         last = pts[-1]
         p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QColor(255, 77, 109, 55))
+        p.setBrush(rgba(BLURPLE, 90))
         p.drawEllipse(last, 6.0, 6.0)
         p.setBrush(QColor(ACCENT))
         p.drawEllipse(last, 3.1, 3.1)
 
-        p.setPen(QColor("#5a687c"))
-        p.setFont(QFont("Microsoft YaHei UI", 8))
+        p.setPen(QColor(MUTED))
+        p.setFont(QFont("Inter", 8))
         p.drawText(QPointF(plot.left(), self.height() - 3), "−60 秒")
         p.drawText(
             QRectF(plot.center().x() - 40, self.height() - 14, 80, 12),
@@ -377,7 +537,7 @@ class SignalBars(QWidget):
             h = 4 + i * 3.2
             x = i * (bar_w + gap)
             y = 16 - h
-            color = QColor(ACCENT if i < self._level else "#2b3545")
+            color = QColor(ACCENT if i < self._level else "#c3ccd9")
             if i < self._level:
                 color.setAlpha(230)
             p.setBrush(color)
@@ -385,46 +545,74 @@ class SignalBars(QWidget):
         p.end()
 
 
-class StatusPill(QLabel):
-    STATE_STYLES = {
-        "idle": ("#26303f", "#a9b6c7"),
-        "connecting": ("rgba(251, 191, 36, 0.14)", "#fbbf24"),
-        "reconnecting": ("rgba(251, 191, 36, 0.14)", "#fbbf24"),
-        "connected": ("rgba(52, 211, 153, 0.14)", "#34d399"),
-        "broadcasting": ("rgba(90, 169, 255, 0.14)", "#5aa9ff"),
-        "disconnected": ("rgba(248, 113, 113, 0.14)", "#f87171"),
-        "error": ("rgba(248, 113, 113, 0.14)", "#f87171"),
+class SoftPill(QLabel):
+    """凹陷胶囊：底色与页面一致，只用 inset 阴影和文字颜色表达状态。"""
+
+    def __init__(self, text: str = "", parent: QWidget | None = None):
+        super().__init__(text, parent)
+        self.setObjectName("Pill")
+        self._tone = MUTED
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+    def set_tone(self, color: str) -> None:
+        if self._tone != color:
+            self._tone = color
+            self.update()
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        w, h = self.width(), self.height()
+        if w <= 0 or h <= 0:
+            p.end()
+            return
+        rect = QRectF(0.5, 0.5, w - 1.0, h - 1.0)
+        draw_recessed(p, rect, rect.height() / 2.0, depth=4)
+        f = QFont(self.font())
+        f.setPointSize(9)
+        f.setWeight(QFont.Weight.Medium)
+        p.setFont(f)
+        p.setPen(QColor(self._tone))
+        p.drawText(rect, Qt.AlignmentFlag.AlignCenter, self.text())
+        p.end()
+
+
+class StatusPill(SoftPill):
+    STATE_TONES = {
+        "idle": MUTED,
+        "connecting": "#c08a12",
+        "reconnecting": "#c08a12",
+        "connected": "#1f9d78",
+        "broadcasting": BLURPLE,
+        "disconnected": "#dd4a4a",
+        "error": "#dd4a4a",
     }
 
     def __init__(self, parent: QWidget | None = None):
-        super().__init__(parent)
-        self.setObjectName("Pill")
+        super().__init__(parent=parent)
         self.set_state("idle", "未连接")
 
     def set_state(self, state: str, text: str) -> None:
-        bg, fg = self.STATE_STYLES.get(state, self.STATE_STYLES["idle"])
-        self.setStyleSheet(f"background: {bg}; color: {fg};")
+        self.set_tone(self.STATE_TONES.get(state, MUTED))
         self.setText(f"●  {text}")
 
 
-class ZoneBadge(QLabel):
+class ZoneBadge(SoftPill):
     def __init__(self, parent: QWidget | None = None):
-        super().__init__(parent)
-        self.setObjectName("Pill")
+        super().__init__(parent=parent)
         self.set_zone(None)
 
     def set_zone(self, zone: str | None) -> None:
         if not zone:
-            self.setStyleSheet("background: #222c3a; color: #8190a4;")
+            self.set_tone(MUTED)
             self.setText("等待数据")
             return
-        color = ZONE_COLORS.get(zone, MUTED)
-        self.setStyleSheet(f"background: rgba(255,255,255,0.055); color: {color};")
+        self.set_tone(ZONE_COLORS.get(zone, MUTED))
         self.setText(f"●  {zone}")
 
 
 class BrandMark(QWidget):
-    """标题旁边的渐变小方块 + 心形。"""
+    """标题旁边的同色小方块 + 心形。"""
 
     def __init__(self, size: int = 44, parent: QWidget | None = None):
         super().__init__(parent)
@@ -434,15 +622,164 @@ class BrandMark(QWidget):
     def paintEvent(self, event) -> None:  # noqa: N802
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        grad = QLinearGradient(0, 0, self.width(), self.height())
-        grad.setColorAt(0, QColor("#311a26"))
-        grad.setColorAt(1, QColor("#17202c"))
-        p.setPen(QPen(QColor("#3b2836"), 1))
-        p.setBrush(grad)
-        p.drawRoundedRect(QRectF(0.5, 0.5, self.width() - 1, self.height() - 1), 13, 13)
+        rect = QRectF(0.5, 0.5, self.width() - 1, self.height() - 1)
+        draw_raised(p, rect, 13.0, distance=3.0, blur=6.0, grey_alpha=80, white_alpha=190)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(BASE))
+        p.drawRoundedRect(rect, 13, 13)
         p.drawPixmap(
             (self.width() - self._pix.width()) // 2,
             (self.height() - self._pix.height()) // 2,
             self._pix,
         )
+        p.end()
+
+
+class RaisedButton(QPushButton):
+    """新拟物凸起按钮：同色填充、无描边、16px 圆角；hover 模糊减半；按下翻成凹陷。"""
+
+    def __init__(self, text: str = "", parent: QWidget | None = None):
+        super().__init__(text, parent)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._hover = False
+        self._pressed = False
+
+    def enterEvent(self, event) -> None:
+        self._hover = True
+        self.update()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event) -> None:
+        self._hover = False
+        self._pressed = False
+        self.update()
+        super().leaveEvent(event)
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._pressed = True
+            self.update()
+        # 必须交给 QAbstractButton，否则 clicked 信号不会发出
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._pressed = False
+            self.update()
+        super().mouseReleaseEvent(event)
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        w, h = self.width(), self.height()
+        if w <= 0 or h <= 0:
+            p.end()
+            return
+        r = min(16.0, w / 2.0, h / 2.0)
+        rect = QRectF(0, 0, w, h)
+        p.setPen(Qt.PenStyle.NoPen)
+
+        if self._pressed or (self.isDown() and self.isEnabled()):
+            draw_recessed(p, rect, r, depth=4)
+        elif not self.isEnabled():
+            p.setBrush(QColor(BASE))
+            p.drawRoundedRect(rect, r, r)
+        elif self._hover:
+            draw_raised(
+                p, rect, r,
+                distance=4.0, blur=8.0, grey_alpha=105, white_alpha=175,
+            )
+        else:
+            draw_raised(p, rect, r)
+
+        if self.hasFocus() and self.focusPolicy() != Qt.FocusPolicy.NoFocus:
+            p.setPen(QPen(QColor(BLURPLE), 2))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.drawRoundedRect(rect.adjusted(2, 2, -2, -2), max(0.0, r - 2), max(0.0, r - 2))
+
+        tone = CORAL if self.property("danger") else INK
+        if not self.isEnabled():
+            tone = "#9aa3b5"
+        f = QFont(self.font())
+        f.setPointSize(13)
+        f.setWeight(QFont.Weight.Medium)
+        p.setFont(f)
+        p.setPen(QColor(tone))
+        p.drawText(rect, Qt.AlignmentFlag.AlignCenter, self.text())
+        p.end()
+
+
+class SoftCheckBox(QAbstractButton):
+    """新拟物勾选框：未选为凹陷空槽，选中为凹陷紫点 + 勾。"""
+
+    def __init__(self, text: str = "", parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setText(text)
+        self.setCheckable(True)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setFixedHeight(30)
+
+    def sizeHint(self) -> QSize:
+        width = QFontMetrics(self.font()).horizontalAdvance(self.text())
+        return QSize(28 + width + 8, 30)
+
+    def minimumSizeHint(self) -> QSize:
+        return self.sizeHint()
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        box = QRectF(0.0, (self.height() - 20.0) / 2.0, 20.0, 20.0)
+        draw_recessed(p, box, 7.0, depth=4)
+        if self.isChecked():
+            mark = QPainterPath()
+            mark.moveTo(box.left() + 5.0, box.center().y() + 0.5)
+            mark.lineTo(box.left() + 8.5, box.bottom() - 5.0)
+            mark.lineTo(box.right() - 4.5, box.top() + 5.0)
+            pen = QPen(QColor(BLURPLE), 2.4)
+            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+            p.setPen(pen)
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.drawPath(mark)
+        f = QFont(self.font())
+        f.setPointSize(12)
+        f.setWeight(QFont.Weight.Normal)
+        p.setFont(f)
+        p.setPen(QColor(INK))
+        p.drawText(
+            QRectF(28.0, 0, max(0.0, self.width() - 28.0), self.height()),
+            Qt.AlignmentFlag.AlignVCenter,
+            self.text(),
+        )
+        if self.hasFocus():
+            p.setPen(QPen(QColor(BLURPLE), 2))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.drawRoundedRect(box.adjusted(-3, -3, 3, 3), 9, 9)
+        p.end()
+
+
+class SoftCard(QFrame):
+    """新拟物软卡片：与背景同色、无边框、凸起双阴影、24px 圆角。"""
+
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        object_name: str = "SoftCard",
+        radius: float = 24.0,
+    ):
+        super().__init__(parent)
+        self._radius = float(radius)
+        self.setObjectName(object_name)
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        w, h = self.width(), self.height()
+        if w <= 0 or h <= 0:
+            p.end()
+            return
+        r = min(self._radius, w / 2.0, h / 2.0)
+        draw_raised(p, QRectF(0, 0, w, h), r)
         p.end()

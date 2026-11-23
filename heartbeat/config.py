@@ -29,6 +29,9 @@ class Settings:
     history_mode: bool = True
     history: dict[str, list[list[int]]] = field(default_factory=dict)
     history_sessions: list[dict] = field(default_factory=list)
+    close_minimize_to_tray: bool = True
+    close_prompt_enabled: bool = True
+    close_default_action: str = "minimize"
 
     @classmethod
     def path(cls) -> Path:

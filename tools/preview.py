@@ -74,6 +74,8 @@ def main() -> None:
     ):
         window.append_log(msg)
 
+    window.layout().activate()
+    app.processEvents()
     app.processEvents()
     window.grab().save(str(OUT / "main.png"))
 

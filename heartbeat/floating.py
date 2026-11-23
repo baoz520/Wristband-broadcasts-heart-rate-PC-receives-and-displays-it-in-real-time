@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from typing import Optional
 
-from PySide6.QtCore import QPoint, QRectF, Qt, Signal
+from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QPainter
 from PySide6.QtWidgets import (
     QApplication,
@@ -18,8 +18,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .theme import ACCENT, MUTED, ZONE_COLORS
-from .widgets import PulseHeart
+from .theme import ACCENT, BASE, MUTED, SHADOW_GREY, ZONE_COLORS
+from .widgets import PulseHeart, RaisedButton, SoftCard, blurred_shape
 
 STATE_TEXT = {
     "idle": "未连接",
@@ -70,11 +70,7 @@ class FloatingWindow(QWidget):
         root.setContentsMargins(10, 10, 10, 10)
         root.setSpacing(0)
 
-        self._panel = QFrame(self)
-        self._panel.setObjectName("FloatPanel")
-        self._panel.setStyleSheet(
-            "#FloatPanel { background: #10161e; border: 1px solid #293241; border-radius: 18px; }"
-        )
+        self._panel = SoftCard(self, object_name="FloatPanel", radius=20.0)
         root.addWidget(self._panel)
 
         lay = QHBoxLayout(self._panel)
@@ -115,14 +111,8 @@ class FloatingWindow(QWidget):
         self._device_label.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
         col.addWidget(self._device_label)
 
-        self._close = QPushButton("×", self)
-        self._close.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._close.setFixedSize(18, 18)
-        self._close.setStyleSheet(
-            "QPushButton { background: transparent; border: none; color: #5f6d80;"
-            " font-size: 14px; padding: 0; }"
-            "QPushButton:hover { color: #ff8fa3; }"
-        )
+        self._close = RaisedButton("×", self)
+        self._close.setFixedSize(20, 20)
         self._close.setToolTip("隐藏悬浮窗")
         self._close.clicked.connect(self.hideRequested.emit)
         self._close.move(self.width() - 34, 16)
@@ -232,7 +222,7 @@ class FloatingWindow(QWidget):
         self._meta.setText(" · ".join(parts))
         zone = self._zone() if self._bpm else ""
         self._meta.setStyleSheet(
-            f"color: {ZONE_COLORS.get(zone, '#9aa8bb')}; font-size: 10px;"
+            f"color: {ZONE_COLORS.get(zone, MUTED)}; font-size: 10px;"
         )
         name = self._device or "打开主界面选择手环"
         if self._source:
@@ -243,14 +233,14 @@ class FloatingWindow(QWidget):
 
     # ------------------------------------------------------------------ 绘制
     def paintEvent(self, event) -> None:  # noqa: N802
+        # 与页面同一光源的柔和灰影，避免纯黑阴影破坏材质感
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        rect = QRectF(10, 10, self.width() - 20, self.height() - 20)
-        for i in range(6, 0, -1):
-            alpha = int(4 + (6 - i) * 1.2)
-            p.setPen(Qt.PenStyle.NoPen)
-            p.setBrush(QColor(0, 0, 0, alpha))
-            p.drawRoundedRect(rect.adjusted(-i, -i + 1, i, i + 1), 18 + i, 18 + i)
+        pm, pad = blurred_shape(
+            self.width() - 22, self.height() - 22, 20,
+            4, 7, 12, SHADOW_GREY, 85,
+        )
+        p.drawPixmap(QPointF(11 - pad, 11 - pad), pm)
         p.end()
 
     def resizeEvent(self, event) -> None:  # noqa: N802
