@@ -513,6 +513,9 @@ class MainWindow(QMainWindow):
         self._last_seen_address = address
         self._apply_history()
 
+    def apply_history_now(self) -> None:
+        self._apply_history()
+
     def _is_live_fresh(self) -> bool:
         return bool(self._last_hr_time) and (time.monotonic() - self._last_hr_time) <= 15
 

@@ -264,6 +264,13 @@ class Controller(QObject):
         self.settings.history_mode = bool(enabled)
         self.window.set_history_mode(bool(enabled))
         self.floating.set_history_mode(bool(enabled))
+        if enabled:
+            address = self._last_seen_address
+            samples = self._history_by_device.get(address, []) if address else []
+            if address and samples:
+                self.window.apply_history_now()
+                self.floating.set_device_history(address, samples)
+                self.floating.set_hr(None, "历史", address, self.window._active_name or address)
         self._save_settings()
 
     def _connect_device(self, address: str, name: str) -> None:
