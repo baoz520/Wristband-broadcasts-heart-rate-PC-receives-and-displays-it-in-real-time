@@ -15,7 +15,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-from PySide6.QtCore import Qt  # noqa: E402
+from PySide6.QtCore import QEvent, Qt  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from heartbeat.chrome import CloseDialog, TitleButton  # noqa: E402
@@ -70,6 +70,44 @@ def main() -> None:
     finally:
         Settings.path = original_path
         temp_path.unlink(missing_ok=True)
+
+    # 4. 悬停动画：交互控件必须带可动画的 hover 属性
+    from heartbeat.widgets import RaisedButton, SoftCard, SoftCheckBox, ToggleSwitch
+
+    hover_widgets = [
+        TitleButton("close"),
+        RaisedButton("连接"),
+        ToggleSwitch(),
+        SoftCheckBox("不再提示"),
+        SoftCard(),
+        window._history_button,
+    ]
+    for widget in hover_widgets:
+        assert hasattr(widget, "hover"), f"{type(widget).__name__} 缺少 hover 动画属性"
+        assert widget.metaObject().indexOfProperty("hover") >= 0, "hover 未注册为 Qt 属性"
+        assert getattr(widget, "_hover_anim", None) is not None, "缺少悬停动画"
+
+    # enter/leave 必须把动画目标设为 1.0 / 0.0
+    from PySide6.QtCore import QPointF
+    from PySide6.QtGui import QEnterEvent
+
+    probe = RaisedButton("连接")
+    probe.enterEvent(QEnterEvent(QPointF(2, 2), QPointF(2, 2), QPointF(2, 2)))
+    assert probe._hover_anim.endValue() == 1.0
+    probe.leaveEvent(QEvent(QEvent.Type.Leave))
+    assert probe._hover_anim.endValue() == 0.0
+
+    # 5. 折线图：历史样本（Unix 时间戳）须换算到 monotonic 基准才能显示
+    import time
+
+    wall = time.time()
+    samples = [[int(wall - (30 - i) * 2), 70 + (i * 7) % 22] for i in range(16)]
+    window.set_device_history("AA:BB:CC:DD:EE:FF", samples)
+    app.processEvents()
+    points = list(window._spark._points)
+    assert len(points) == 16, f"折线数据点数量错误: {len(points)}"
+    ages = [time.monotonic() - ts for ts, _ in points]
+    assert 0 <= min(ages) and max(ages) < 90, f"时间戳未换算到 monotonic 基准: {ages}"
 
     # 关闭测试窗口时不弹模态框（离屏环境下 exec() 行为不稳定）
     settings.close_prompt_enabled = False

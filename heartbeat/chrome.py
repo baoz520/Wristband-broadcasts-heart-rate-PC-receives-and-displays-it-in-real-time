@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QPointF, QRectF, Qt, Signal
+from PySide6.QtCore import Property, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPen
 from PySide6.QtWidgets import (
     QAbstractButton,
@@ -22,10 +22,12 @@ from PySide6.QtWidgets import (
 from .theme import BLURPLE, CORAL, INK, MUTED
 from .widgets import (
     BrandMark,
+    HoverAnimator,
     RaisedButton,
     SoftCheckBox,
     draw_raised,
     draw_recessed,
+    mix_color,
 )
 
 # 窗口四周留给柔和外阴影的透明边距
@@ -44,14 +46,16 @@ _TOOLTIPS = {
 class TitleButton(QAbstractButton):
     """圆形凸起标题栏按钮：最小化 / 最大化 / 还原 / 关闭。"""
 
+    hover = Property(float, HoverAnimator._get, HoverAnimator._set)
+
     def __init__(self, kind: str, parent: QWidget | None = None):
         super().__init__(parent)
         self._kind = kind
-        self._hover = False
         self.setFixedSize(28, 28)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setToolTip(_TOOLTIPS.get(kind, ""))
+        HoverAnimator.setup(self)
 
     @property
     def kind(self) -> str:
@@ -64,13 +68,11 @@ class TitleButton(QAbstractButton):
             self.update()
 
     def enterEvent(self, event) -> None:
-        self._hover = True
-        self.update()
+        HoverAnimator.fade(self, 1.0)
         super().enterEvent(event)
 
     def leaveEvent(self, event) -> None:
-        self._hover = False
-        self.update()
+        HoverAnimator.fade(self, 0.0)
         super().leaveEvent(event)
 
     def paintEvent(self, event) -> None:  # noqa: N802
@@ -79,15 +81,16 @@ class TitleButton(QAbstractButton):
         w, h = self.width(), self.height()
         rect = QRectF(0.5, 0.5, w - 1.0, h - 1.0)
         r = min(14.0, rect.width() / 2.0, rect.height() / 2.0)
+        hv = self.hover if self.isEnabled() else 0.0
 
         if self.isDown() and self.isEnabled():
             draw_recessed(p, rect, r, depth=3)
-        elif self._hover and self.isEnabled():
-            draw_raised(p, rect, r, distance=3.0, blur=6.0, grey_alpha=110, white_alpha=200)
         else:
             draw_raised(
                 p, rect, r,
-                distance=2.0, blur=5.0, grey_alpha=85, white_alpha=175,
+                distance=2.5 + 1.5 * hv, blur=5.0 + 3.0 * hv,
+                grey_alpha=int(105 + 45 * hv), white_alpha=int(185 + 30 * hv),
+                rim=hv > 0.05,
             )
 
         if self.hasFocus():
@@ -95,10 +98,13 @@ class TitleButton(QAbstractButton):
             p.setBrush(Qt.BrushStyle.NoBrush)
             p.drawRoundedRect(rect.adjusted(2, 2, -2, -2), max(0.0, r - 2), max(0.0, r - 2))
 
-        tone = CORAL if (self._kind == "close" and self._hover) else INK
+        if self._kind == "close":
+            tone = mix_color(INK, CORAL, hv)
+        else:
+            tone = mix_color(INK, BLURPLE, hv)
         if not self.isEnabled():
-            tone = MUTED
-        pen = QPen(QColor(tone), 1.6)
+            tone = QColor(MUTED)
+        pen = QPen(tone, 1.6)
         pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
         p.setPen(pen)
@@ -239,7 +245,10 @@ class RootPanel(QWidget):
             max(1.0, self.width() - FRAME_MARGIN * 2),
             max(1.0, self.height() - FRAME_MARGIN * 2),
         )
-        draw_raised(p, rect, 24.0)
+        draw_raised(
+            p, rect, 24.0,
+            distance=10.0, blur=20.0, grey_alpha=155, white_alpha=205, rim=True,
+        )
         p.end()
 
     def _edges_at(self, pos) -> Qt.Edges:
@@ -343,6 +352,7 @@ class CloseDialog(QDialog):
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(16)
         self._minimize = RaisedButton("最小化")
+        self._minimize.setProperty("accent", True)
         self._quit = RaisedButton("直接关闭")
         self._quit.setProperty("danger", True)
         self._minimize.setFixedHeight(42)

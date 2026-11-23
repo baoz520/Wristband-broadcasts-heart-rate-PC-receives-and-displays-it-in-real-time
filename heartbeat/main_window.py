@@ -110,6 +110,7 @@ class DeviceRow(QFrame):
 
         self._button = RaisedButton("连接")
         self._button.setFixedSize(64, 30)
+        self._button.setProperty("accent", True)
         self._button.setCursor(Qt.CursorShape.PointingHandCursor)
         self._button.clicked.connect(self._on_click)
         lay.addWidget(self._button, 0, Qt.AlignmentFlag.AlignVCenter)
@@ -156,6 +157,10 @@ class DeviceRow(QFrame):
         if self._button.isEnabled() != enabled:
             self._button.setEnabled(enabled)
         self._button.setProperty("danger", connected)
+        self._button.setProperty("accent", not connected)
+        self._button.style().unpolish(self._button)
+        self._button.style().polish(self._button)
+        self._button.update()
 
         if self.property("connected") != connected:
             self.setProperty("connected", connected)
@@ -354,6 +359,7 @@ class MainWindow(QMainWindow):
         hrow.setContentsMargins(0, 0, 0, 0)
         hrow.addStretch(1)
         self._history_button = RaisedButton("查看历史数据")
+        self._history_button.setProperty("accent", True)
         self._history_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self._history_button.clicked.connect(self._on_history_button_clicked)
         hrow.addWidget(self._history_button)
@@ -403,6 +409,7 @@ class MainWindow(QMainWindow):
         head.addWidget(self._scan_hint, 0, Qt.AlignmentFlag.AlignVCenter)
         head.addStretch(1)
         refresh = RaisedButton("刷新")
+        refresh.setProperty("accent", True)
         refresh.setCursor(Qt.CursorShape.PointingHandCursor)
         refresh.clicked.connect(self.scanRequested.emit)
         head.addWidget(refresh)
@@ -522,15 +529,27 @@ class MainWindow(QMainWindow):
         ts, bpm = samples[-1]
         zone = heart_rate_zone(bpm)
         color = ZONE_COLORS.get(zone, ACCENT)
-        self._spark.set_series(
-            [(ts2, bpm2) for ts2, bpm2 in samples if time.monotonic() - ts2 <= self._spark.WINDOW_SECONDS + 4]
-        )
+        # 历史样本用 Unix 时间戳（time.time）存储，而 Sparkline 与实时数据用
+        # monotonic 时钟。必须先换算到同一基准，否则时间差是上亿秒，折线会被
+        # 裁剪到绘图区之外、看起来"没有折线图"。
+        wall_now, mono_now = time.time(), time.monotonic()
+
+        def to_mono(wall_ts: float) -> float:
+            return mono_now - max(0.0, wall_now - float(wall_ts))
+
+        series = [
+            (to_mono(ts2), bpm2)
+            for ts2, bpm2 in samples
+            if 0.0 <= wall_now - float(ts2) <= self._spark.WINDOW_SECONDS + 4
+        ]
+        self._spark.set_series(series)
         self._bpm.setText(str(bpm))
         self._bpm.setStyleSheet(f"color: {color};")
         self._heart.set_bpm(bpm, color)
         self._zone.set_zone(zone)
-        self._source.setText(f"历史 · {zone} · {max(0, int(time.monotonic() - ts))} 秒前")
-        self._last_hr_time = ts
+        self._source.setText(f"历史 · {zone} · {max(0, int(wall_now - float(ts)))} 秒前")
+        # _last_hr_time 统一使用 monotonic 基准（与 _is_live_fresh / _refresh_hint 一致）
+        self._last_hr_time = to_mono(ts)
 
     def set_devices(self, devices: list[DeviceInfo]) -> None:
         self._devices = devices

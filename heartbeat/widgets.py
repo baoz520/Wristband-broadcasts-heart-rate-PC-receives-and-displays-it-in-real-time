@@ -118,6 +118,17 @@ def blurred_shape(
     return out, pad
 
 
+def mix_color(a: str, b: str, t: float) -> QColor:
+    """在两个 hex 颜色间线性插值，用于悬停过渡。"""
+    ca, cb = QColor(a), QColor(b)
+    t = max(0.0, min(1.0, float(t)))
+    return QColor(
+        int(ca.red() + (cb.red() - ca.red()) * t),
+        int(ca.green() + (cb.green() - ca.green()) * t),
+        int(ca.blue() + (cb.blue() - ca.blue()) * t),
+    )
+
+
 def draw_raised(
     painter: QPainter,
     rect: QRectF,
@@ -125,8 +136,9 @@ def draw_raised(
     *,
     distance: float = 8.0,
     blur: float = 16.0,
-    grey_alpha: int = 110,
-    white_alpha: int = 150,
+    grey_alpha: int = 138,
+    white_alpha: int = 182,
+    rim: bool = False,
 ) -> None:
     """凸起：右下冷灰暗影 + 左上高光，最后铺同色基底。"""
     d, b = int(round(distance)), int(round(blur))
@@ -151,6 +163,14 @@ def draw_raised(
     painter.setPen(Qt.PenStyle.NoPen)
     painter.setBrush(QColor(BASE))
     painter.drawRoundedRect(rect, radius, radius)
+
+    # 极淡的同色系描边：新拟物没有实色边框，这层 ultra-light 边缘只补足
+    # 卡片与背景之间的轮廓，让"界面边框"可辨又不破坏同色材质。
+    if rim:
+        edge = QPen(rgba(SHADOW_GREY, 58), 1.0)
+        painter.setPen(edge)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRoundedRect(rect.adjusted(0.5, 0.5, -0.5, -0.5), radius, radius)
 
 
 def draw_recessed(painter: QPainter, rect: QRectF, radius: float, *, depth: float = 9.0) -> None:
@@ -233,6 +253,45 @@ def make_app_icon() -> QIcon:
     return icon
 
 
+class HoverAnimator:
+    """给 QWidget 子类提供可动画的 hover 进度（0→1）。
+
+    用法：子类声明 ``hover = Property(float, HoverAnimator._get, HoverAnimator._set)``，
+    在构造里调用 ``HoverAnimator.setup(self)``，enterEvent/leaveEvent 调用
+    ``fade(1.0/0.0)``，paintEvent 读取 ``self.hover`` 做插值。
+    """
+
+    DURATION = 180
+
+    @staticmethod
+    def setup(owner) -> None:
+        owner._hover_value = 0.0
+        owner._hover_anim = QPropertyAnimation(owner, b"hover", owner)
+        owner._hover_anim.setDuration(HoverAnimator.DURATION)
+        owner._hover_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+
+    @staticmethod
+    def _get(owner) -> float:
+        return getattr(owner, "_hover_value", 0.0)
+
+    @staticmethod
+    def _set(owner, value: float) -> None:
+        value = max(0.0, min(1.0, float(value)))
+        if value != getattr(owner, "_hover_value", 0.0):
+            owner._hover_value = value
+            owner.update()
+
+    @staticmethod
+    def fade(owner, target: float) -> None:
+        anim = getattr(owner, "_hover_anim", None)
+        if anim is None:
+            return
+        anim.stop()
+        anim.setStartValue(HoverAnimator._get(owner))
+        anim.setEndValue(max(0.0, min(1.0, float(target))))
+        anim.start()
+
+
 class ToggleSwitch(QAbstractButton):
     """新拟物软开关：凹陷轨道 + 凸起旋钮，开启填紫罗兰。"""
 
@@ -247,6 +306,7 @@ class ToggleSwitch(QAbstractButton):
         self._anim.setDuration(200)
         self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
         self.toggled.connect(self._animate)
+        HoverAnimator.setup(self)
 
     def _get_offset(self) -> float:
         return self._offset
@@ -256,6 +316,15 @@ class ToggleSwitch(QAbstractButton):
         self.update()
 
     offset = Property(float, _get_offset, _set_offset)
+    hover = Property(float, HoverAnimator._get, HoverAnimator._set)
+
+    def enterEvent(self, event) -> None:
+        HoverAnimator.fade(self, 1.0)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event) -> None:
+        HoverAnimator.fade(self, 0.0)
+        super().leaveEvent(event)
 
     def _animate(self, checked: bool) -> None:
         self._anim.stop()
@@ -287,13 +356,15 @@ class ToggleSwitch(QAbstractButton):
         x = 3.0 + (w - 6.0 - knob) * t
         y = (h - knob) / 2.0
 
+        hv = self.hover
         track = QRectF(0, 0, w, h)
-        draw_recessed(p, track, radius, depth=5)
+        draw_recessed(p, track, radius, depth=5 + 2 * hv)
 
         knob_rect = QRectF(x, y, knob, knob)
         draw_raised(
             p, knob_rect, knob / 2.0,
-            distance=3.0, blur=6.0, grey_alpha=95, white_alpha=190,
+            distance=3.0 + 1.5 * hv, blur=6.0 + 2 * hv,
+            grey_alpha=int(95 + 55 * hv), white_alpha=int(190 + 40 * hv),
         )
         fill_color = QColor(BLURPLE) if (on and self.isEnabled()) else QColor(BASE)
         if not self.isEnabled():
@@ -636,23 +707,23 @@ class BrandMark(QWidget):
 
 
 class RaisedButton(QPushButton):
-    """新拟物凸起按钮：同色填充、无描边、16px 圆角；hover 模糊减半；按下翻成凹陷。"""
+    """新拟物凸起按钮：同色填充、无描边、16px 圆角；hover 阴影平滑收缩；按下翻成凹陷。"""
+
+    hover = Property(float, HoverAnimator._get, HoverAnimator._set)
 
     def __init__(self, text: str = "", parent: QWidget | None = None):
         super().__init__(text, parent)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._hover = False
         self._pressed = False
+        HoverAnimator.setup(self)
 
     def enterEvent(self, event) -> None:
-        self._hover = True
-        self.update()
+        HoverAnimator.fade(self, 1.0)
         super().enterEvent(event)
 
     def leaveEvent(self, event) -> None:
-        self._hover = False
+        HoverAnimator.fade(self, 0.0)
         self._pressed = False
-        self.update()
         super().leaveEvent(event)
 
     def mousePressEvent(self, event) -> None:
@@ -677,6 +748,7 @@ class RaisedButton(QPushButton):
             return
         r = min(16.0, w / 2.0, h / 2.0)
         rect = QRectF(0, 0, w, h)
+        hv = self.hover if self.isEnabled() else 0.0
         p.setPen(Qt.PenStyle.NoPen)
 
         if self._pressed or (self.isDown() and self.isEnabled()):
@@ -684,33 +756,50 @@ class RaisedButton(QPushButton):
         elif not self.isEnabled():
             p.setBrush(QColor(BASE))
             p.drawRoundedRect(rect, r, r)
-        elif self._hover:
+        else:
+            # hover 时按新拟物规范把模糊减半、位移收紧；静止态也保留淡描边
+            # 与足够强的双阴影，避免按钮"融进"背景而看不出是可点击控件。
             draw_raised(
                 p, rect, r,
-                distance=4.0, blur=8.0, grey_alpha=105, white_alpha=175,
+                distance=7.0 - 3.0 * hv,
+                blur=13.0 - 6.0 * hv,
+                grey_alpha=int(168 + 24 * hv),
+                white_alpha=int(210 + 22 * hv),
+                rim=True,
             )
-        else:
-            draw_raised(p, rect, r)
+            # 内侧再补一圈极淡高光，强化凸起材质边缘
+            p.setPen(QPen(rgba(HIGHLIGHT, 150), 1.0))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.drawRoundedRect(rect.adjusted(1.5, 1.5, -1.5, -1.5), max(0.0, r - 1.5), max(0.0, r - 1.5))
 
         if self.hasFocus() and self.focusPolicy() != Qt.FocusPolicy.NoFocus:
             p.setPen(QPen(QColor(BLURPLE), 2))
             p.setBrush(Qt.BrushStyle.NoBrush)
             p.drawRoundedRect(rect.adjusted(2, 2, -2, -2), max(0.0, r - 2), max(0.0, r - 2))
 
-        tone = CORAL if self.property("danger") else INK
+        danger = bool(self.property("danger"))
+        # 主操作按钮用紫罗兰强调，危险操作用珊瑚红，其余深灰；hover 时再加深
+        if danger:
+            tone = mix_color(CORAL, CORAL, hv)
+        elif self.property("accent"):
+            tone = mix_color(BLURPLE, BLURPLE, hv)
+        else:
+            tone = mix_color(INK, INK, hv)
         if not self.isEnabled():
-            tone = "#9aa3b5"
+            tone = QColor("#9aa3b5")
         f = QFont(self.font())
         f.setPointSize(13)
         f.setWeight(QFont.Weight.Medium)
         p.setFont(f)
-        p.setPen(QColor(tone))
+        p.setPen(tone)
         p.drawText(rect, Qt.AlignmentFlag.AlignCenter, self.text())
         p.end()
 
 
 class SoftCheckBox(QAbstractButton):
     """新拟物勾选框：未选为凹陷空槽，选中为凹陷紫点 + 勾。"""
+
+    hover = Property(float, HoverAnimator._get, HoverAnimator._set)
 
     def __init__(self, text: str = "", parent: QWidget | None = None):
         super().__init__(parent)
@@ -719,6 +808,7 @@ class SoftCheckBox(QAbstractButton):
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setFixedHeight(30)
+        HoverAnimator.setup(self)
 
     def sizeHint(self) -> QSize:
         width = QFontMetrics(self.font()).horizontalAdvance(self.text())
@@ -727,11 +817,19 @@ class SoftCheckBox(QAbstractButton):
     def minimumSizeHint(self) -> QSize:
         return self.sizeHint()
 
+    def enterEvent(self, event) -> None:
+        HoverAnimator.fade(self, 1.0)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event) -> None:
+        HoverAnimator.fade(self, 0.0)
+        super().leaveEvent(event)
+
     def paintEvent(self, event) -> None:  # noqa: N802
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         box = QRectF(0.0, (self.height() - 20.0) / 2.0, 20.0, 20.0)
-        draw_recessed(p, box, 7.0, depth=4)
+        draw_recessed(p, box, 7.0, depth=4 + 2 * self.hover)
         if self.isChecked():
             mark = QPainterPath()
             mark.moveTo(box.left() + 5.0, box.center().y() + 0.5)
@@ -747,7 +845,7 @@ class SoftCheckBox(QAbstractButton):
         f.setPointSize(12)
         f.setWeight(QFont.Weight.Normal)
         p.setFont(f)
-        p.setPen(QColor(INK))
+        p.setPen(mix_color(INK, BLURPLE, self.hover))
         p.drawText(
             QRectF(28.0, 0, max(0.0, self.width() - 28.0), self.height()),
             Qt.AlignmentFlag.AlignVCenter,
@@ -761,7 +859,9 @@ class SoftCheckBox(QAbstractButton):
 
 
 class SoftCard(QFrame):
-    """新拟物软卡片：与背景同色、无边框、凸起双阴影、24px 圆角。"""
+    """新拟物软卡片：与背景同色、无实色边框、凸起双阴影 + 淡轮廓、24px 圆角。"""
+
+    hover = Property(float, HoverAnimator._get, HoverAnimator._set)
 
     def __init__(
         self,
@@ -772,6 +872,15 @@ class SoftCard(QFrame):
         super().__init__(parent)
         self._radius = float(radius)
         self.setObjectName(object_name)
+        HoverAnimator.setup(self)
+
+    def enterEvent(self, event) -> None:
+        HoverAnimator.fade(self, 1.0)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event) -> None:
+        HoverAnimator.fade(self, 0.0)
+        super().leaveEvent(event)
 
     def paintEvent(self, event) -> None:  # noqa: N802
         p = QPainter(self)
@@ -781,5 +890,15 @@ class SoftCard(QFrame):
             p.end()
             return
         r = min(self._radius, w / 2.0, h / 2.0)
-        draw_raised(p, QRectF(0, 0, w, h), r)
+        hv = self.hover
+        # hover：模糊减半 + 2px 上浮，与规范一致
+        rect = QRectF(0, -2.0 * hv, w, h)
+        draw_raised(
+            p, rect, r,
+            distance=8.0 - 4.0 * hv,
+            blur=16.0 - 8.0 * hv,
+            grey_alpha=int(138 + 24 * hv),
+            white_alpha=int(182 + 20 * hv),
+            rim=True,
+        )
         p.end()

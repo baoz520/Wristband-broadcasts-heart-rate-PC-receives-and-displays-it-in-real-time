@@ -138,7 +138,8 @@ class FloatingWindow(QWidget):
         ts, bpm = samples[-1]
         self._bpm = bpm
         self._source = "历史"
-        self._seconds_ago = max(0, int(time.monotonic() - ts))
+        # 历史样本用 Unix 时间戳存储，这里直接用 wall clock 计算"多久之前"
+        self._seconds_ago = max(0, int(time.time() - float(ts)))
         return bpm
 
     def set_hr(self, bpm: Optional[int], source: str = "", address: str = "", name: str = "") -> None:
