@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+*.spec
+build/
+dist/
+screenshots/
+heartbeat_monitor.spec
+*.exe
+settings.json
+*.db
