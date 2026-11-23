@@ -93,10 +93,8 @@ class TitleButton(QAbstractButton):
                 rim=hv > 0.05,
             )
 
-        if self.hasFocus():
-            p.setPen(QPen(QColor(BLURPLE), 2))
-            p.setBrush(Qt.BrushStyle.NoBrush)
-            p.drawRoundedRect(rect.adjusted(2, 2, -2, -2), max(0.0, r - 2), max(0.0, r - 2))
+        # 不绘制焦点环：标题栏按钮不需要显式的圆框轮廓，避免圆形按钮外
+        # 套一个方向方框的视觉噪声。键盘仍可 Tab 聚焦并回车触发。
 
         if self._kind == "close":
             tone = mix_color(INK, CORAL, hv)

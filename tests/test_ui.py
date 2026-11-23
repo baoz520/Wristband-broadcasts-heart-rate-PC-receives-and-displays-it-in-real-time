@@ -109,6 +109,34 @@ def main() -> None:
     ages = [time.monotonic() - ts for ts, _ in points]
     assert 0 <= min(ages) and max(ages) < 90, f"时间戳未换算到 monotonic 基准: {ages}"
 
+    # 6. "查看历史数据"按钮必须能真正打开历史，不再因 Controller 上不存在的
+    #    _last_seen_address 字段抛 AttributeError 而中断信号链。
+    from heartbeat.app import Controller
+
+    controller = Controller(app)
+    controller.window.show()
+    app.processEvents()
+    addr = "C8:47:8C:1A:2B:3C"
+    wall = time.time()
+    controller._history_by_device[addr] = [
+        [int(wall - (30 - i) * 2), 70 + (i * 7) % 22] for i in range(16)
+    ]
+    controller.window._history_mode = False
+    controller.floating._history_mode = False
+    controller.window._history_button.click()
+    app.processEvents()
+    assert controller.history_mode is True, "历史模式未开启"
+    assert len(controller.window._spark._points) == 16, "点击历史按钮后折线未加载"
+    assert controller.floating._source == "历史", "悬浮窗未切换到历史数据"
+
+    # 7. 标题栏圆形按钮不应绘制焦点方向的方框轮廓
+    import inspect
+
+    src = inspect.getsource(TitleButton.paintEvent)
+    assert "hasFocus()" not in src, "标题栏按钮仍绘制焦点方框"
+
+    controller.quit()
+
     # 关闭测试窗口时不弹模态框（离屏环境下 exec() 行为不稳定）
     settings.close_prompt_enabled = False
     settings.close_default_action = "minimize"

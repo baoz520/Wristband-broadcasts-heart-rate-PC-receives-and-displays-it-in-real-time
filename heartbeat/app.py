@@ -280,9 +280,20 @@ class Controller(QObject):
         self.window.set_history_mode(bool(enabled))
         self.floating.set_history_mode(bool(enabled))
         if enabled:
-            address = self._last_seen_address
+            # 最近设备地址保存在主窗口上；Controller 本身没有该字段。
+            # 依次用窗口的活动/最近地址，最后回退到历史里有数据的最近一台。
+            address = (
+                getattr(self.window, "_active_address", "")
+                or getattr(self.window, "_last_seen_address", "")
+            )
+            if not address or address not in self._history_by_device:
+                samples_with_devices = [
+                    (addr, s) for addr, s in self._history_by_device.items() if s
+                ]
+                address = samples_with_devices[-1][0] if samples_with_devices else ""
             samples = self._history_by_device.get(address, []) if address else []
             if address and samples:
+                self.window.set_device_history(address, samples)
                 self.window.apply_history_now()
                 self.floating.set_device_history(address, samples)
                 self.floating.set_hr(None, "历史", address, self.window._active_name or address)
