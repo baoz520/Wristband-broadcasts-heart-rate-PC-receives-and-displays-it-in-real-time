@@ -231,8 +231,8 @@ class Sparkline(QWidget):
         self.setMinimumHeight(96)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
-    def add(self, bpm: int) -> None:
-        now = time.monotonic()
+    def add(self, bpm: int, ts: float | None = None) -> None:
+        now = time.monotonic() if ts is None else ts
         self._points.append((now, bpm))
         self._prune(now)
         self.update()

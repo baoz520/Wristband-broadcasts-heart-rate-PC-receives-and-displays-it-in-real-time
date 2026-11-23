@@ -521,6 +521,9 @@ class MainWindow(QMainWindow):
         ts, bpm = samples[-1]
         zone = heart_rate_zone(bpm)
         color = ZONE_COLORS.get(zone, ACCENT)
+        points = list(self._spark._points)
+        if not points or points[-1][0] != ts or points[-1][1] != bpm:
+            self._spark.add(bpm, ts)
         self._bpm.setText(str(bpm))
         self._bpm.setStyleSheet(f"color: {color};")
         self._heart.set_bpm(bpm, color)
