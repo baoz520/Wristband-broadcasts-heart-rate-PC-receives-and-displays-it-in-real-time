@@ -55,7 +55,7 @@ class DeviceInfo:
 
 class BleWorker(QThread):
     devicesChanged = Signal(list)      # list[DeviceInfo]
-    heartRate = Signal(int, str, str)  # bpm, 来源, 设备名
+    heartRate = Signal(int, str, str, str)  # bpm, 来源, 地址, 设备名
     linkChanged = Signal(str, str, str)  # 状态, 地址, 名称
     batteryChanged = Signal(int)
     log = Signal(str)
@@ -253,7 +253,7 @@ class BleWorker(QThread):
                 if last is None or (now - last[1] > 1.5) or last[0] != hr_adv:
                     self._last_adv_hr[address] = (hr_adv, now)
                     if not self._want_address or address == self._want_address:
-                        self.heartRate.emit(hr_adv, "广播", name)
+                        self.heartRate.emit(hr_adv, "广播", address, name)
             now = time.monotonic()
             if now - self._last_emit > 0.6:
                 self._last_emit = now
@@ -265,10 +265,7 @@ class BleWorker(QThread):
         devices = sorted(
             self._devices.values(),
             key=lambda d: (
-                d.address != self._want_address,
-                d.hr_adv is None,
-                not d.has_hr_service,
-                d.name in ("", "未命名设备"),
+                not (d.hr_adv is not None or d.has_hr_service),
                 -d.rssi,
             ),
         )
@@ -397,7 +394,7 @@ class BleWorker(QThread):
             data = await client.read_gatt_char(HR_MEASUREMENT_UUID)
             bpm = parse_heart_rate_measurement(data)
             if bpm:
-                self.heartRate.emit(bpm, "心率服务", self._connected_name)
+                self.heartRate.emit(bpm, "心率服务", self._connected_address, self._connected_name)
         except Exception:
             pass
 
@@ -415,7 +412,7 @@ class BleWorker(QThread):
     def _on_hr(self, sender, data: bytearray) -> None:
         bpm = parse_heart_rate_measurement(data)
         if bpm:
-            self.heartRate.emit(bpm, "心率服务", self._connected_name)
+            self.heartRate.emit(bpm, "心率服务", self._connected_address, self._connected_name)
 
     def _on_disconnected(self, client) -> None:
         self.log.emit("设备连接已断开")

@@ -72,6 +72,10 @@ class Controller(QObject):
         self._last_hr_time = 0.0
         self._tray_hint_shown = False
         self._quitting = False
+        self.history_mode = self.settings.history_mode
+        self._history_by_device: dict[str, list[list[int]]] = {
+            addr: [list(x) for x in samples] for addr, samples in (self.settings.history or {}).items()
+        }
 
         self._build_tray()
         self._wire()
@@ -115,6 +119,7 @@ class Controller(QObject):
         self.window.floatingToggled.connect(self.set_floating)
         self.window.deviceManagementToggled.connect(self.set_device_management)
         self.window.autoReconnectToggled.connect(self._set_auto_reconnect)
+        self.window.historyToggled.connect(self._set_history_mode)
         self.window.connectRequested.connect(self._connect_device)
         self.window.disconnectRequested.connect(self.worker.disconnect_device)
         self.window.scanRequested.connect(self._manual_refresh)
@@ -252,6 +257,13 @@ class Controller(QObject):
         self.window.set_auto_switch(enabled)
         self._save_settings()
 
+    def _set_history_mode(self, enabled: bool) -> None:
+        self.history_mode = bool(enabled)
+        self.settings.history_mode = bool(enabled)
+        self.window.set_history_mode(bool(enabled))
+        self.floating.set_history_mode(bool(enabled))
+        self._save_settings()
+
     def _connect_device(self, address: str, name: str) -> None:
         if not self.settings.device_management:
             self.window.append_log("请先打开“设备管理”开关")
@@ -288,11 +300,18 @@ class Controller(QObject):
         self._save_settings()
 
     # ------------------------------------------------------------------ 回调
-    def _on_heart_rate(self, bpm: int, source: str, name: str = "") -> None:
+    def _on_heart_rate(self, bpm: int, source: str, address: str, name: str) -> None:
         self._last_hr_time = time.monotonic()
-        self.window.push_hr(bpm, source, name)
-        self.floating.set_hr(bpm, source, name)
+        self.window.push_hr(bpm, source, address, name)
+        self.floating.set_hr(bpm, source, address, name)
         self.tray.setToolTip(f"心率监测 · {bpm} BPM")
+
+        samples = self._history_by_device.setdefault(address, [])
+        samples.append([int(time.time()), bpm])
+        if len(samples) > 200:
+            del samples[:-200]
+        self.window.set_device_history(address, samples)
+        self.floating.set_device_history(address, samples)
 
     def _on_link_changed(self, state: str, address: str, name: str) -> None:
         self._link_state = state
@@ -303,6 +322,11 @@ class Controller(QObject):
             self.settings.saved_name = name
             self._save_settings()
             self._last_hr_time = 0.0
+        if state == "connected" and address:
+            samples = self._history_by_device.get(address, [])
+            if samples:
+                self.window.set_device_history(address, samples)
+                self.floating.set_device_history(address, samples)
         if state == "connected":
             self.tray.setToolTip(f"心率监测 · {name or address}")
         elif state in ("idle", "disconnected", "error"):
@@ -347,6 +371,9 @@ class Controller(QObject):
         if self.floating.isVisible():
             self.settings.floating_x = self.floating.x()
             self.settings.floating_y = self.floating.y()
+        self.settings.history = {
+            addr: [list(x) for x in samples] for addr, samples in self._history_by_device.items() if samples
+        }
         self.settings.save()
 
     def _on_about_to_quit(self) -> None:

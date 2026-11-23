@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
 
@@ -26,6 +26,8 @@ class Settings:
     floating_y: int = -1
     floating_locked: bool = False
     window_geometry: str = ""
+    history_mode: bool = True
+    history: dict[str, list[list[int]]] = field(default_factory=dict)
 
     @classmethod
     def path(cls) -> Path:

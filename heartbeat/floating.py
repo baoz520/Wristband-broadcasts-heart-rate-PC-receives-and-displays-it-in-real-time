@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from typing import Optional
 
 from PySide6.QtCore import QPoint, QRectF, Qt, Signal
@@ -57,6 +58,9 @@ class FloatingWindow(QWidget):
         self._locked = False
         self._dragging = False
         self._drag_offset = QPoint()
+        self._address = ""
+        self._history_mode = True
+        self._history_by_device: dict[str, list[list[int]]] = {}
 
         self._build_ui()
 
@@ -125,12 +129,45 @@ class FloatingWindow(QWidget):
         self._close.raise_()
 
     # ------------------------------------------------------------------ 数据
-    def set_hr(self, bpm: Optional[int], source: str = "", device: str = "") -> None:
+    def set_history_mode(self, enabled: bool) -> None:
+        self._history_mode = bool(enabled)
+
+    def set_device_history(self, address: str, samples: list) -> None:
+        if not address:
+            return
+        self._history_by_device[address] = list(samples or [])
+        self._refresh_meta()
+        self.update()
+
+    def _history_value(self) -> Optional[int]:
+        if not self._history_mode:
+            return None
+        samples = self._history_by_device.get(self._address, []) if self._address else []
+        if not samples:
+            return None
+        ts, bpm = samples[-1]
         self._bpm = bpm
-        self._source = source
-        if device:
-            self._device = device
-        self._seconds_ago = 0
+        self._source = "历史"
+        self._seconds_ago = max(0, int(time.monotonic() - ts))
+        return bpm
+
+    def set_hr(self, bpm: Optional[int], source: str = "", address: str = "", name: str = "") -> None:
+        self._address = address or self._device
+        if name:
+            self._device = name
+        history_bpm: Optional[int] = None
+        if bpm is None:
+            history_bpm = self._history_value()
+            bpm = history_bpm
+        self._bpm = bpm
+        if bpm is None:
+            self._source = ""
+            self._seconds_ago = 0
+        elif history_bpm is not None:
+            self._source = "历史"
+        else:
+            self._source = source if source else "心率服务"
+            self._seconds_ago = 0
         color = ACCENT
         self._bpm_label.setText(str(bpm) if bpm else "--")
         self._bpm_label.setStyleSheet(f"color: {color if bpm else MUTED};")
@@ -141,13 +178,26 @@ class FloatingWindow(QWidget):
     def set_link(self, state: str, address: str = "", name: str = "") -> None:
         self._state = state
         self._device = name or address
+        if address:
+            self._address = address
         self._refresh_meta()
         if state != "connected":
-            self._bpm = None
-            self._source = ""
-            self._heart.set_bpm(0)
-            self._bpm_label.setText("--")
-            self._bpm_label.setStyleSheet(f"color: {MUTED};")
+            if not self._history_mode:
+                self._bpm = None
+                self._source = ""
+                self._heart.set_bpm(0)
+                self._bpm_label.setText("--")
+                self._bpm_label.setStyleSheet(f"color: {MUTED};")
+            else:
+                bpm = self._history_value()
+                if bpm is None:
+                    self._bpm = None
+                    self._source = ""
+                    self._heart.set_bpm(0)
+                    self._bpm_label.setText("--")
+                    self._bpm_label.setStyleSheet(f"color: {MUTED};")
+        elif self._bpm is None:
+            self.set_hr(None, self._source, self._address, self._device)
         self.setToolTip(f"{self._device}\n{address}" if address else self._device)
 
     def tick(self, seconds_since_data: int) -> None:

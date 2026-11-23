@@ -168,6 +168,7 @@ class MainWindow(QMainWindow):
     floatingToggled = Signal(bool)
     deviceManagementToggled = Signal(bool)
     autoReconnectToggled = Signal(bool)
+    historyToggled = Signal(bool)
     connectRequested = Signal(str, str)
     disconnectRequested = Signal()
     scanRequested = Signal()
@@ -185,6 +186,9 @@ class MainWindow(QMainWindow):
         self._active_name = ""
         self._last_hr_time = 0.0
         self._last_source = ""
+        self._history_mode = True
+        self._history_by_device: dict[str, list[list[int]]] = {}
+        self._last_seen_address = ""
         self._history: deque[tuple[float, int]] = deque(maxlen=6000)
 
         self.setWindowTitle("心率监测")
@@ -345,9 +349,18 @@ class MainWindow(QMainWindow):
             "设备管理", "扫描手环、连接设备并自动重连", self.settings.device_management
         )
         lay.addWidget(row2)
+        divider2 = QFrame()
+        divider2.setObjectName("Divider")
+        lay.addWidget(divider2)
+        row3, self._history_switch = self._switch_row(
+            "历史数据", "查看之前连接手环的历史心率", self.settings.history_mode
+        )
+        lay.addWidget(row3)
 
         self._floating_switch.toggled.connect(self.floatingToggled.emit)
         self._device_switch.toggled.connect(self._on_device_switch)
+        self._history_switch.toggled.connect(self.historyToggled.emit)
+        self.set_history_mode(self.settings.history_mode)
         return card
 
     def _switch_row(self, title: str, desc: str, checked: bool):
@@ -471,6 +484,39 @@ class MainWindow(QMainWindow):
         self._auto_switch.setChecked(checked)
         self._auto_switch.blockSignals(False)
 
+    def set_history_mode(self, enabled: bool) -> None:
+        self._history_mode = bool(enabled)
+        self._history_switch.blockSignals(True)
+        self._history_switch.setChecked(bool(enabled))
+        self._history_switch.blockSignals(False)
+
+    def set_device_history(self, address: str, samples: list) -> None:
+        if not address:
+            return
+        self._history_by_device[address] = [list(x) for x in samples or []]
+        self._last_seen_address = address
+        self._apply_history()
+
+    def _is_live_fresh(self) -> bool:
+        return bool(self._last_hr_time) and (time.monotonic() - self._last_hr_time) <= 15
+
+    def _apply_history(self) -> None:
+        if not self._history_mode:
+            return
+        key = self._active_address or self._last_seen_address
+        samples = self._history_by_device.get(key, []) if key else []
+        if not samples:
+            return
+        ts, bpm = samples[-1]
+        zone = heart_rate_zone(bpm)
+        color = ZONE_COLORS.get(zone, ACCENT)
+        self._bpm.setText(str(bpm))
+        self._bpm.setStyleSheet(f"color: {color};")
+        self._heart.set_bpm(bpm, color)
+        self._zone.set_zone(zone)
+        self._source.setText(f"历史 · {zone} · {max(0, int(time.monotonic() - ts))} 秒前")
+        self._last_hr_time = ts
+
     def set_devices(self, devices: list[DeviceInfo]) -> None:
         self._devices = devices
         shown = devices[:12]
@@ -542,10 +588,14 @@ class MainWindow(QMainWindow):
             info = next((d for d in self._devices if d.address == row.address), None)
             if info is not None:
                 row.update_info(info, self._active_address, self._link_state)
+        if state == "connected":
+            self._apply_history()
         self._refresh_hint()
 
-    def push_hr(self, bpm: int, source: str, name: str = "") -> None:
+    def push_hr(self, bpm: int, source: str, address: str = "", name: str = "") -> None:
         now = time.monotonic()
+        if address:
+            self._last_seen_address = address
         if name:
             self._active_name = name
         self._last_hr_time = now
@@ -627,6 +677,7 @@ class MainWindow(QMainWindow):
         self._refresh_hint()
         if self._last_hr_time and time.monotonic() - self._last_hr_time > 15:
             self._heart.set_bpm(0)
+            self._apply_history()
             if (
                 self._link_state not in ("connected", "connecting", "reconnecting")
                 and self._last_source == "广播"
