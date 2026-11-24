@@ -453,23 +453,29 @@ class PulseHeart(QWidget):
 
 
 class Sparkline(QWidget):
-    """最近 60 秒的心率折线图。"""
+    """心率折线图：实时模式显示最近 60 秒；历史模式按索引绘制完整历史。"""
 
     WINDOW_SECONDS = 60
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self._points: deque[tuple[float, int]] = deque()
+        self._history_mode = False
+        self._axis_labels: tuple[str, str, str] = ("−60 秒", "30 秒", "现在")
         self.setMinimumHeight(96)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
     def add(self, bpm: int, ts: float | None = None) -> None:
+        """实时追加一个样本，保持最近 60 秒窗口。"""
+        self._history_mode = False
         now = time.monotonic() if ts is None else ts
         self._points.append((now, bpm))
         self._prune(now)
         self.update()
 
     def set_series(self, samples: list[tuple[float, int]]) -> None:
+        """兼容旧接口：作为实时序列设置，按 60 秒窗口过滤。"""
+        self._history_mode = False
         self._points.clear()
         now = time.monotonic()
         for ts, bpm in samples:
@@ -478,11 +484,24 @@ class Sparkline(QWidget):
             self._points.append((ts, bpm))
         self.update()
 
+    def set_history(
+        self,
+        samples: list[tuple[float, int]],
+        labels: tuple[str, str, str] | None = None,
+    ) -> None:
+        """历史模式：保留全部样本，X 轴按索引均匀分布（不受 60 秒窗口限制）。"""
+        self._history_mode = True
+        self._points = deque(samples)
+        self._axis_labels = labels or ("最早", "历史心率", "最新")
+        self.update()
+
     def clear(self) -> None:
         self._points.clear()
         self.update()
 
     def _prune(self, now: float) -> None:
+        if self._history_mode:
+            return
         cutoff = now - self.WINDOW_SECONDS - 4
         while self._points and self._points[0][0] < cutoff:
             self._points.popleft()
@@ -524,10 +543,19 @@ class Sparkline(QWidget):
             return plot.bottom() - (v - lo) / (hi - lo) * plot.height()
 
         pts: list[QPointF] = []
-        for ts, v in self._points:
-            x = plot.right() - (now - ts) / self.WINDOW_SECONDS * plot.width()
-            x = max(plot.left(), x)
-            pts.append(QPointF(x, y_of(v)))
+        n = len(self._points)
+        if self._history_mode:
+            # 历史模式：样本按保存顺序均匀铺满绘图区，与真实时间跨度无关。
+            # 这样几小时前甚至几天前的历史也能完整显示。
+            span = max(1, n - 1)
+            for i, (_ts, v) in enumerate(self._points):
+                x = plot.left() + i / span * plot.width()
+                pts.append(QPointF(x, y_of(v)))
+        else:
+            for ts, v in self._points:
+                x = plot.right() - (now - ts) / self.WINDOW_SECONDS * plot.width()
+                x = max(plot.left(), x)
+                pts.append(QPointF(x, y_of(v)))
 
         fill = QPainterPath()
         fill.moveTo(pts[0].x(), plot.bottom())
@@ -561,16 +589,17 @@ class Sparkline(QWidget):
 
         p.setPen(QColor(MUTED))
         p.setFont(QFont("Inter", 8))
-        p.drawText(QPointF(plot.left(), self.height() - 3), "−60 秒")
+        left_label, mid_label, right_label = self._axis_labels
+        p.drawText(QPointF(plot.left(), self.height() - 3), left_label)
         p.drawText(
-            QRectF(plot.center().x() - 40, self.height() - 14, 80, 12),
+            QRectF(plot.center().x() - 60, self.height() - 14, 120, 12),
             Qt.AlignmentFlag.AlignHCenter,
-            "30 秒",
+            mid_label,
         )
         p.drawText(
-            QRectF(plot.right() - 40, self.height() - 14, 40, 12),
+            QRectF(plot.right() - 60, self.height() - 14, 60, 12),
             Qt.AlignmentFlag.AlignRight,
-            "现在",
+            right_label,
         )
         p.end()
 

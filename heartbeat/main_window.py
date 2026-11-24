@@ -529,27 +529,41 @@ class MainWindow(QMainWindow):
         ts, bpm = samples[-1]
         zone = heart_rate_zone(bpm)
         color = ZONE_COLORS.get(zone, ACCENT)
-        # 历史样本用 Unix 时间戳（time.time）存储，而 Sparkline 与实时数据用
-        # monotonic 时钟。必须先换算到同一基准，否则时间差是上亿秒，折线会被
-        # 裁剪到绘图区之外、看起来"没有折线图"。
         wall_now, mono_now = time.time(), time.monotonic()
 
-        def to_mono(wall_ts: float) -> float:
-            return mono_now - max(0.0, wall_now - float(wall_ts))
+        def ago_text(wall_ts: float) -> str:
+            seconds = max(0, int(wall_now - float(wall_ts)))
+            if seconds < 60:
+                return f"{seconds} 秒前"
+            if seconds < 3600:
+                return f"{seconds // 60} 分钟前"
+            return f"{seconds // 3600} 小时前"
 
-        series = [
-            (to_mono(ts2), bpm2)
-            for ts2, bpm2 in samples
-            if 0.0 <= wall_now - float(ts2) <= self._spark.WINDOW_SECONDS + 4
-        ]
-        self._spark.set_series(series)
+        # 历史是跨会话长期保存的数据（可能几小时甚至几天前），不能套用实时
+        # 的 60 秒窗口，否则全部被过滤、折线图为空。用历史模式按索引绘制完整
+        # 序列，并用真实时间戳生成坐标轴的起止标签。
+        ordered = sorted(samples, key=lambda pair: float(pair[0]))
+        series = [(float(wall_ts), int(bpm2)) for wall_ts, bpm2 in ordered]
+        labels = (
+            ago_text(ordered[0][0]),
+            f"{len(ordered)} 条历史记录",
+            ago_text(ordered[-1][0]),
+        )
+        self._spark.set_history(series, labels)
+
+        # 历史模式下用全部历史样本填充统计，避免"最低/平均/最高"一直是空
+        hist_vals = [v for _, v in series]
+        self._stat_min.setText(str(min(hist_vals)))
+        self._stat_avg.setText(str(round(sum(hist_vals) / len(hist_vals))))
+        self._stat_max.setText(str(max(hist_vals)))
+
         self._bpm.setText(str(bpm))
         self._bpm.setStyleSheet(f"color: {color};")
         self._heart.set_bpm(bpm, color)
         self._zone.set_zone(zone)
-        self._source.setText(f"历史 · {zone} · {max(0, int(wall_now - float(ts)))} 秒前")
+        self._source.setText(f"历史 · {zone} · {ago_text(ts)}")
         # _last_hr_time 统一使用 monotonic 基准（与 _is_live_fresh / _refresh_hint 一致）
-        self._last_hr_time = to_mono(ts)
+        self._last_hr_time = mono_now - max(0.0, wall_now - float(ts))
 
     def set_devices(self, devices: list[DeviceInfo]) -> None:
         self._devices = devices

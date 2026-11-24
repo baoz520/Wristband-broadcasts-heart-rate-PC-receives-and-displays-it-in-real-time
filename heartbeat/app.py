@@ -171,6 +171,14 @@ class Controller(QObject):
 
         if self.settings.saved_address:
             self.floating.set_link("idle", self.settings.saved_address, self.settings.saved_name)
+
+        # 启动时把持久化的历史数据装进界面，否则"查看历史数据"在刚打开时是空的
+        self.window.set_sessions(list(self._sessions))
+        for address, samples in self._history_by_device.items():
+            if samples:
+                self.window.set_device_history(address, samples)
+                self.floating.set_device_history(address, samples)
+                break  # 折线图只显示一台设备，优先第一台有数据的
         self.window.append_log("应用已启动，正在准备蓝牙扫描…")
 
     def start(self) -> None:
