@@ -19,6 +19,7 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 from heartbeat.ble import DeviceInfo  # noqa: E402
 from heartbeat.config import Settings  # noqa: E402
 from heartbeat.floating import FloatingWindow  # noqa: E402
+from heartbeat.history_window import HistoryWindow  # noqa: E402
 from heartbeat.main_window import MainWindow  # noqa: E402
 from heartbeat.theme import apply_theme  # noqa: E402
 
@@ -95,7 +96,45 @@ def main() -> None:
     painter.end()
     canvas.save(str(OUT / "floating.png"))
 
-    print("saved", OUT / "main.png", OUT / "floating.png")
+    # 历史记录窗口：演示三次连接的汇总曲线
+    demo_sessions = [
+        {
+            "address": "C8:47:8C:1A:2B:3C", "name": "Xiaomi Smart Band 8",
+            "start": int(time.time() - 8 * 3600), "end": int(time.time() - 8 * 3600 + 42 * 60),
+            "min": 61, "max": 148, "avg": 88.4, "samples": 210,
+            "series": [
+                [int(time.time() - 8 * 3600) + i * 12,
+                 72 + int(28 * (i % 9 == 0)) + (i * 7) % 19]
+                for i in range(40)
+            ],
+        },
+        {
+            "address": "F4:12:FA:9D:88:01", "name": "HUAWEI Band 9",
+            "start": int(time.time() - 26 * 3600), "end": int(time.time() - 26 * 3600 + 18 * 60),
+            "min": 66, "max": 132, "avg": 92.1, "samples": 96,
+            "series": [
+                [int(time.time() - 26 * 3600) + i * 11, 68 + (i * 11) % 31]
+                for i in range(30)
+            ],
+        },
+        {
+            "address": "D4:36:39:AA:10:7F", "name": "Polar H10",
+            "start": int(time.time() - 50 * 3600), "end": int(time.time() - 50 * 3600 + 7 * 60),
+            "min": 63, "max": 119, "avg": 80.0, "samples": 40,
+            "series": [
+                [int(time.time() - 50 * 3600) + i * 10, 65 + (i * 5) % 24]
+                for i in range(24)
+            ],
+        },
+    ]
+    history = HistoryWindow(demo_sessions)
+    history.show()
+    history.layout().activate()
+    app.processEvents()
+    app.processEvents()
+    history.grab().save(str(OUT / "history.png"))
+
+    print("saved", OUT / "main.png", OUT / "floating.png", OUT / "history.png")
 
 
 if __name__ == "__main__":

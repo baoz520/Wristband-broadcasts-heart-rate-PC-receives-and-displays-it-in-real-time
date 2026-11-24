@@ -173,6 +173,7 @@ class MainWindow(QMainWindow):
     deviceManagementToggled = Signal(bool)
     autoReconnectToggled = Signal(bool)
     historyToggled = Signal(bool)
+    historyWindowRequested = Signal()
     connectRequested = Signal(str, str)
     disconnectRequested = Signal()
     scanRequested = Signal()
@@ -503,8 +504,11 @@ class MainWindow(QMainWindow):
         self._history_mode = bool(enabled)
 
     def _on_history_button_clicked(self) -> None:
+        # 点击「查看历史数据」应弹出独立的历史记录窗口；保留 historyToggled
+        # 以维持悬浮窗/主界面历史模式的原有行为，但主要交付是新窗口。
         self.set_history_mode(True)
         self.historyToggled.emit(True)
+        self.historyWindowRequested.emit()
 
     def set_device_history(self, address: str, samples: list) -> None:
         if not address:

@@ -143,6 +143,51 @@ def main() -> None:
     src = inspect.getsource(TitleButton.paintEvent)
     assert "hasFocus()" not in src, "标题栏按钮仍绘制焦点方框"
 
+    # 8. 每次连接的心率序列必须被记录，并在会话结束时写入持久化数据
+    controller._on_heart_rate(70, "心率服务", "AA:BB:CC:DD:EE:FF", "测试手环")
+    for bpm in (72, 75, 81, 90, 77):
+        controller._on_heart_rate(bpm, "心率服务", "AA:BB:CC:DD:EE:FF", "测试手环")
+    assert controller._session is not None and len(controller._session["series"]) == 6, (
+        "本次连接的心率序列未被采集"
+    )
+    assert [x[1] for x in controller._session["series"]] == [70, 72, 75, 81, 90, 77]
+    controller._finalize_session()
+    assert controller._sessions, "会话结束未写入历史"
+    finished = controller._sessions[-1]
+    assert len(finished.get("series") or []) == 6, "会话未保存心率曲线"
+    assert finished.get("min") == 70 and finished.get("max") == 90
+
+    # 9. "查看历史数据"按钮必须弹出独立的历史记录窗口，逐条显示会话统计与折线
+    from heartbeat.history_window import HistoryWindow
+
+    controller.window._history_button.click()
+    app.processEvents()
+    hw = controller._history_window
+    assert hw is not None and isinstance(hw, HistoryWindow), "历史记录窗口未创建"
+    assert hw.isVisible(), "历史记录窗口未显示"
+    # 每条会话一张卡片，含统计条与折线图（若该会话有曲线数据）
+    cards = [w for w in hw.findChildren(SoftCard)]
+    assert len(cards) == len(controller._sessions), (
+        f"历史卡片数量不符: {len(cards)} vs {len(controller._sessions)}"
+    )
+    from heartbeat.widgets import Sparkline
+
+    with_series = [r for r in controller._sessions if len(r.get("series") or []) >= 2]
+    charts = sum(len(c.findChildren(Sparkline)) for c in cards)
+    assert charts >= len(with_series), "会话折线图未渲染"
+    assert "次连接" in hw._count.text()
+
+    # 再次点击应复用同一窗口并刷新，而不是创建新窗口
+    controller.window._history_button.click()
+    app.processEvents()
+    assert controller._history_window is hw, "历史窗口被重复创建"
+    hw.hide()
+
+    # 空状态窗口：没有会话时显示占位提示
+    empty_window = HistoryWindow([])
+    assert "0 次连接" in empty_window._count.text()
+    assert empty_window._cards_lay.count() == 1, "空状态未显示占位提示"
+
     controller.quit()
 
     # 关闭测试窗口时不弹模态框（离屏环境下 exec() 行为不稳定）

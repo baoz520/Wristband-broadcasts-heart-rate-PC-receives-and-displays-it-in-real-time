@@ -67,6 +67,7 @@ class Controller(QObject):
 
         self.window = MainWindow(self.settings)
         self.floating = FloatingWindow()
+        self._history_window = None  # 延迟创建：点击「查看历史数据」时才实例化
         self.worker = BleWorker(self.settings.auto_reconnect, self)
 
         self._last_hr_time = 0.0
@@ -127,6 +128,7 @@ class Controller(QObject):
         self.window.deviceManagementToggled.connect(self.set_device_management)
         self.window.autoReconnectToggled.connect(self._set_auto_reconnect)
         self.window.historyToggled.connect(self._set_history_mode)
+        self.window.historyWindowRequested.connect(self.show_history_window)
         self.window.connectRequested.connect(self._connect_device)
         self.window.disconnectRequested.connect(self.worker.disconnect_device)
         self.window.scanRequested.connect(self._manual_refresh)
@@ -213,6 +215,20 @@ class Controller(QObject):
         self.window.raise_()
         self.window.activateWindow()
 
+    def show_history_window(self) -> None:
+        """打开历史记录窗口；每次打开都用最新的会话列表刷新。"""
+        if self._history_window is None:
+            from .history_window import HistoryWindow
+
+            self._history_window = HistoryWindow(self._sessions, self.window)
+            self._history_window.setWindowIcon(self.window.windowIcon())
+        else:
+            self._history_window.set_sessions(list(self._sessions))
+        self._history_window.center_on(self.window)
+        self._history_window.show()
+        self._history_window.raise_()
+        self._history_window.activateWindow()
+
     def quit(self) -> None:
         if self._quitting:
             return
@@ -222,6 +238,8 @@ class Controller(QObject):
         self.worker.shutdown()
         self.tray.hide()
         self.floating.hide()
+        if self._history_window is not None:
+            self._history_window.hide()
         self.window.hide()
         self.app.quit()
 
@@ -366,12 +384,19 @@ class Controller(QObject):
                 "max": None,
                 "sum": 0.0,
                 "last": None,
+                # 本次连接的完整心率曲线，供历史记录窗口逐条绘制折线图。
+                "series": [],
             }
         self._session["count"] = int(self._session.get("count") or 0) + 1
         self._session["sum"] = float(self._session.get("sum") or 0) + bpm
         self._session["min"] = bpm if self._session.get("min") is None else min(int(self._session["min"]), bpm)
         self._session["max"] = bpm if self._session.get("max") is None else max(int(self._session["max"]), bpm)
         self._session["last"] = bpm
+        # 采样曲线：与全局历史一致用 Unix 秒，限制长度避免持久化文件膨胀。
+        series = self._session.setdefault("series", [])
+        series.append([int(time.time()), int(bpm)])
+        if len(series) > 200:
+            del series[:-200]
 
     def _finalize_session(self) -> None:
         if not self._session:
@@ -391,6 +416,7 @@ class Controller(QObject):
                 "max": int(self._session["max"]),
                 "avg": round(float(self._session.get("sum") or 0.0) / count, 1),
                 "last": int(self._session.get("last") or 0),
+                "series": [list(x) for x in (self._session.get("series") or [])],
             }
         )
         if len(self._sessions) > 50:
@@ -398,6 +424,9 @@ class Controller(QObject):
         self.window.set_sessions(list(self._sessions))
         self.settings.history_sessions = list(self._sessions)
         self._session = None
+        # 历史窗口若已打开，立即刷新以显示刚结束的这次连接
+        if self._history_window is not None:
+            self._history_window.set_sessions(list(self._sessions))
 
     def _on_link_changed(self, state: str, address: str, name: str) -> None:
         self._link_state = state
