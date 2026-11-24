@@ -190,6 +190,18 @@ class SettingsWindow(QDialog):
         self._custom_edit.setObjectName("RecessedInput")
         self._custom_edit.setPlaceholderText("例如：mygame.exe=我的游戏")
         cv.addWidget(self._custom_edit)
+
+        pick_row = QHBoxLayout()
+        pick_row.setContentsMargins(0, 2, 0, 0)
+        pick_row.setSpacing(8)
+        self._custom_status = QLabel("")
+        self._custom_status.setObjectName("Sub")
+        pick_row.addWidget(self._custom_status, 1)
+        pick = RaisedButton("从运行进程中添加…")
+        pick.setFixedWidth(156)
+        pick.clicked.connect(self._pick_process)
+        pick_row.addWidget(pick, 0, Qt.AlignmentFlag.AlignRight)
+        cv.addLayout(pick_row)
         game_sec.lay.addWidget(custom_row)
         body.addWidget(game_sec)
 
@@ -263,6 +275,39 @@ class SettingsWindow(QDialog):
         self._mode_combo.setCurrentIndex(mode_index if mode_index >= 0 else 0)
         self._poll_slider.setValue(int(s.game_poll_seconds))
         self._custom_edit.setText("\n".join(s.game_custom or []))
+
+    # ---------------------------------------------------------- 进程快捷添加
+    def _pick_process(self) -> None:
+        """打开进程选择器，用户勾选后直接写入自定义清单并立即生效。"""
+        from .process_picker import ProcessPickerDialog
+
+        current = [ln.strip() for ln in self._custom_edit.text().splitlines() if ln.strip()]
+        dialog = ProcessPickerDialog(self, current)
+        dialog.processSelected.connect(self._add_custom_process)
+        dialog.center_on(self)
+        dialog.exec()
+
+    def _add_custom_process(self, name: str, display: str = "") -> None:
+        """把选中的进程加入自定义清单（去重），并立即应用到检测器。"""
+        name = (name or "").strip()
+        if not name:
+            return
+        lines = [ln.strip() for ln in self._custom_edit.text().splitlines() if ln.strip()]
+        key = name.lower().removesuffix(".exe")
+        entry = f"{name}={display.strip()}" if display.strip() else name
+        replaced = False
+        for i, line in enumerate(lines):
+            proc = line.split("=", 1)[0].strip().lower().removesuffix(".exe")
+            if proc == key:
+                lines[i] = entry
+                replaced = True
+                break
+        if not replaced:
+            lines.append(entry)
+        self._custom_edit.setText("\n".join(lines))
+        self._custom_status.setText(f"已添加：{display.strip() or name}")
+        # collect() 会发出 gameCustomChanged，Controller 立即更新识别清单并保存
+        self.collect()
 
     def collect(self) -> None:
         """把当前界面值写回 settings 并发出即时生效信号。"""

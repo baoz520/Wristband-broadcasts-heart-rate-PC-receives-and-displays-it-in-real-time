@@ -125,6 +125,8 @@ def main() -> None:
         [int(wall - 3 * 3600 + i * 30), 70 + (i * 7) % 22] for i in range(16)
     ]
     controller._history_by_device[addr] = old_samples
+    # 固定使用本用例的设备，避免真实配置里保存的"上次设备"抢走历史焦点
+    controller.window._active_address = addr
     controller.window._history_mode = False
     controller.floating._history_mode = False
     controller.window._history_button.click()
@@ -289,6 +291,38 @@ def main() -> None:
     assert controller.floating.isVisible(), "退出游戏后悬浮窗未恢复"
     controller._on_game_float_mode_changed("transparent")
     assert controller.settings.game_float_mode == "transparent", "悬浮窗模式未持久化"
+
+    # 15. 进程选择器：列出所有进程、搜索、选中后快捷加入自定义清单并立即生效
+    import heartbeat.process_picker as picker_module
+    from heartbeat.process_picker import ProcessPickerDialog
+
+    fake_processes = [
+        (101, "NewGame.exe", r"D:\Games\NewGame\NewGame.exe"),
+        (102, "steam.exe", r"C:\Program Files (x86)\Steam\steam.exe"),
+    ]
+    original_scan = picker_module.scan_processes
+    picker_module.scan_processes = lambda: (list(fake_processes), 0, "")
+    try:
+        picker = ProcessPickerDialog()
+        assert picker._table.rowCount() == 2, "进程列表未列出全部进程"
+        picker._search.setText("newgame")
+        shown = [r for r in range(picker._table.rowCount()) if not picker._table.isRowHidden(r)]
+        assert shown == [0], "进程搜索过滤失败"
+        picker._table.selectRow(0)
+        assert picker._display_edit.text(), "选中进程后未生成默认显示名"
+        picker._display_edit.setText("新游戏")
+        picker._accept()
+        assert picker.selected_process == ("NewGame.exe", "新游戏"), "选择结果错误"
+
+        settings_win._custom_edit.setText("")
+        settings_win._add_custom_process("NewGame.exe", "新游戏")
+        assert "NewGame.exe=新游戏" in settings_win._custom_edit.text()
+        assert "NewGame.exe=新游戏" in controller._game_extra, "自定义清单未即时生效"
+        assert match_game("NewGame.exe", controller._game_extra) == "新游戏"
+        settings_win._add_custom_process("NewGame.exe", "新游戏")
+        assert settings_win._custom_edit.text().count("NewGame.exe") == 1, "重复添加未去重"
+    finally:
+        picker_module.scan_processes = original_scan
 
     controller.quit()
 

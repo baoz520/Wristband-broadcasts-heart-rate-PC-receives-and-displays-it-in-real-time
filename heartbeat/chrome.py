@@ -235,6 +235,9 @@ class RootPanel(QWidget):
     def addWidget(self, widget: QWidget) -> None:  # noqa: N802
         self._layout.addWidget(widget)
 
+    def addLayout(self, layout) -> None:  # noqa: N802
+        self._layout.addLayout(layout)
+
     def paintEvent(self, event) -> None:  # noqa: N802
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)

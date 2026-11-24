@@ -168,8 +168,30 @@ def main() -> None:
     app.processEvents()
     settings_win.grab().save(str(OUT / "settings.png"))
 
+    # 进程选择器：用固定假进程渲染，避免截图里出现用户真实进程
+    import heartbeat.process_picker as picker_module
+    from heartbeat.process_picker import ProcessPickerDialog
+
+    original_scan = picker_module.scan_processes
+    picker_module.scan_processes = lambda: ([
+        (1204, "cs2.exe", r"C:\Program Files (x86)\Steam\steamapps\common\Counter-Strike Global Offensive\game\bin\win64\cs2.exe"),
+        (2316, "YuanShen.exe", r"D:\Games\Genshin Impact\YuanShen.exe"),
+        (3408, "chrome.exe", r"C:\Program Files\Google\Chrome\Application\chrome.exe"),
+        (4520, "steam.exe", r"C:\Program Files (x86)\Steam\steam.exe"),
+    ], 0, "")
+    try:
+        picker = ProcessPickerDialog(settings_win, ["cs2.exe"])
+        picker.show()
+        picker.layout().activate()
+        app.processEvents()
+        app.processEvents()
+        picker.grab().save(str(OUT / "process_picker.png"))
+    finally:
+        picker_module.scan_processes = original_scan
+
     print("saved", OUT / "main.png", OUT / "floating.png",
-          OUT / "floating_game.png", OUT / "history.png", OUT / "settings.png")
+          OUT / "floating_game.png", OUT / "history.png", OUT / "settings.png",
+          OUT / "process_picker.png")
 
 
 if __name__ == "__main__":
