@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
+    QComboBox,
     QDialog,
     QFrame,
     QHBoxLayout,
@@ -81,6 +82,7 @@ class SettingsWindow(QDialog):
     gameCustomChanged = Signal(list)
     gameRecordChanged = Signal(bool)
     gameShowFloatChanged = Signal(bool)
+    gameFloatModeChanged = Signal(str)
     gamePollChanged = Signal(int)
 
     def __init__(self, settings, parent: QWidget | None = None):
@@ -149,6 +151,31 @@ class SettingsWindow(QDialog):
         game_sec.lay.addWidget(sw)
         game_sec.add_divider()
 
+        # 游戏中悬浮窗样式：隐藏背景 / 整窗隐藏 / 保持原样
+        mode_row = QWidget()
+        mode_row.setFixedHeight(56)
+        mh = QHBoxLayout(mode_row)
+        mh.setContentsMargins(0, 4, 0, 4)
+        mh.setSpacing(10)
+        mcol = QVBoxLayout()
+        mcol.setContentsMargins(0, 0, 0, 0)
+        mcol.setSpacing(0)
+        mname = QLabel("游戏中悬浮窗")
+        mname.setObjectName("H2")
+        msub = QLabel("自动控制悬浮窗底板与可见性")
+        msub.setObjectName("Sub")
+        mcol.addWidget(mname)
+        mcol.addWidget(msub)
+        mh.addLayout(mcol, 1)
+        self._mode_combo = QComboBox()
+        self._mode_combo.addItem("隐藏背景，仅留数据", "transparent")
+        self._mode_combo.addItem("自动隐藏整个悬浮窗", "hidden")
+        self._mode_combo.addItem("保持原样", "normal")
+        self._mode_combo.setFixedWidth(160)
+        mh.addWidget(self._mode_combo, 0, Qt.AlignmentFlag.AlignVCenter)
+        game_sec.lay.addWidget(mode_row)
+        game_sec.add_divider()
+
         self._poll_slider = self._add_slider_row(game_sec, "检测间隔", "秒，越小越灵敏", 2, 10, 4)
 
         # 自定义进程名输入
@@ -156,7 +183,7 @@ class SettingsWindow(QDialog):
         cv = QVBoxLayout(custom_row)
         cv.setContentsMargins(0, 6, 0, 6)
         cv.setSpacing(4)
-        tip = QLabel("自定义游戏进程名（每行一个，支持 进程名=显示名）")
+        tip = QLabel("补充游戏进程名（每行一个，支持 进程名=显示名；Steam 等启动器不算游戏）")
         tip.setObjectName("Sub")
         cv.addWidget(tip)
         self._custom_edit = QLineEdit()
@@ -232,6 +259,8 @@ class SettingsWindow(QDialog):
         self._game_switch.setChecked(bool(s.game_detect_enabled))
         self._game_record_switch.setChecked(bool(s.game_record_sessions))
         self._game_float_switch.setChecked(bool(s.game_show_on_float))
+        mode_index = self._mode_combo.findData(getattr(s, "game_float_mode", "transparent"))
+        self._mode_combo.setCurrentIndex(mode_index if mode_index >= 0 else 0)
         self._poll_slider.setValue(int(s.game_poll_seconds))
         self._custom_edit.setText("\n".join(s.game_custom or []))
 
@@ -246,6 +275,7 @@ class SettingsWindow(QDialog):
         s.game_detect_enabled = bool(self._game_switch.isChecked())
         s.game_record_sessions = bool(self._game_record_switch.isChecked())
         s.game_show_on_float = bool(self._game_float_switch.isChecked())
+        s.game_float_mode = self._mode_combo.currentData() or "transparent"
         s.game_poll_seconds = int(self._poll_slider.value())
         custom = [ln.strip() for ln in self._custom_edit.text().splitlines() if ln.strip()]
         s.game_custom = custom
@@ -259,6 +289,7 @@ class SettingsWindow(QDialog):
         self.gameCustomChanged.emit(list(custom))
         self.gameRecordChanged.emit(s.game_record_sessions)
         self.gameShowFloatChanged.emit(s.game_show_on_float)
+        self.gameFloatModeChanged.emit(s.game_float_mode)
         self.gamePollChanged.emit(s.game_poll_seconds)
 
     def accept_if_needed(self) -> None:

@@ -242,6 +242,40 @@ def main() -> None:
     assert last.get("min") == 80 and last.get("max") == 92, "游戏心率统计错误"
     assert len(last.get("series") or []) == 4, "游戏心率曲线未保存"
 
+    # 13. Steam 等平台不算游戏；游戏识别覆盖主流进程名 + 安装路径
+    from heartbeat.game import BUILTIN_GAMES
+
+    for launcher in (
+        "steam.exe", "steamwebhelper.exe", "EpicGamesLauncher.exe",
+        "Battle.net.exe", "WeGame.exe", "hoyokit.exe", "javaw.exe",
+    ):
+        assert match_game(launcher) is None, f"{launcher} 被误判为游戏"
+    assert match_game("steam.exe", ["steam.exe=我指定的游戏"]) == "我指定的游戏"
+    assert len(BUILTIN_GAMES) >= 150, "内置游戏进程表覆盖不足"
+    assert match_game(
+        "mystery.exe",
+        exe=r"C:\Program Files (x86)\Steam\steamapps\common\My Cool Game\mystery.exe",
+    ) == "My Cool Game", "安装路径未识别为游戏"
+    assert match_game("MyGame-Win64-Shipping.exe") == "MyGame", "引擎命名未识别"
+    assert match_game("javaw.exe", window_title="Minecraft 1.20.4") == "我的世界"
+
+    # 14. 悬浮窗游戏中自动隐藏背景 / 整窗隐藏，退出游戏后恢复
+    controller._on_game_float_mode_changed("transparent")
+    controller.floating.set_game_info("原神", bpm=88, low=80, high=95)
+    assert controller.floating._game_transparent, "隐藏背景模式未生效"
+    assert controller.floating._panel._transparent, "悬浮窗底板未隐藏"
+    controller.floating.set_game_info("")
+    assert not controller.floating._game_transparent, "退出游戏后背景未恢复"
+
+    controller._on_game_float_mode_changed("hidden")
+    controller._start_game_session(game)
+    controller._sync_game_visibility(True)
+    assert not controller.floating.isVisible(), "游戏中悬浮窗未自动隐藏"
+    controller._finish_game_session()
+    assert controller.floating.isVisible(), "退出游戏后悬浮窗未恢复"
+    controller._on_game_float_mode_changed("transparent")
+    assert controller.settings.game_float_mode == "transparent", "悬浮窗模式未持久化"
+
     controller.quit()
 
     # 关闭测试窗口时不弹模态框（离屏环境下 exec() 行为不稳定）

@@ -214,6 +214,30 @@ QLineEdit#RecessedInput {{
 QLineEdit#RecessedInput:focus {{
     border-color: {BLURPLE};
 }}
+QComboBox {{
+    background: {BASE};
+    border: 2px solid {SHADOW_GREY};
+    border-radius: 12px;
+    padding: 5px 10px;
+    color: {INK};
+    font-size: 11px;
+}}
+QComboBox:hover, QComboBox:focus {{
+    border-color: {BLURPLE};
+}}
+QComboBox::drop-down {{
+    border: none;
+    width: 18px;
+}}
+QComboBox QAbstractItemView {{
+    background: {BASE};
+    border: 1px solid {SHADOW_GREY};
+    border-radius: 10px;
+    color: {INK};
+    selection-background-color: {BLURPLE};
+    selection-color: #ffffff;
+    padding: 4px;
+}}
 QSlider::groove:horizontal {{
     background: {SHADOW_GREY};
     height: 6px;

@@ -30,6 +30,15 @@ STATE_TEXT = {
     "error": "蓝牙不可用",
 }
 
+# 游戏中"隐藏背景"模式下改用亮色文字，压在任意游戏画面上都看得清。
+TEXT_ON_GAME = "#f8fafc"
+TEXT_ON_GAME_MUTED = "#cbd5e1"
+
+# 悬浮窗在游戏中的显示方式
+GAME_FLOAT_NORMAL = "normal"          # 保持原样
+GAME_FLOAT_TRANSPARENT = "transparent"  # 隐藏拟物底板，只留数据
+GAME_FLOAT_HIDDEN = "hidden"           # 整窗自动隐藏
+
 
 class FloatingWindow(QWidget):
     openMainRequested = Signal()
@@ -69,6 +78,8 @@ class FloatingWindow(QWidget):
         self._game_bpm: Optional[int] = None
         self._game_low: Optional[int] = None
         self._game_high: Optional[int] = None
+        self._game_float_mode = GAME_FLOAT_TRANSPARENT
+        self._game_transparent = False
 
         self._build_ui()
 
@@ -104,9 +115,9 @@ class FloatingWindow(QWidget):
         self._bpm_label.setFixedHeight(38)
         number_row.addWidget(self._bpm_label, 0, Qt.AlignmentFlag.AlignBottom)
 
-        unit = QLabel("BPM", self._panel)
-        unit.setStyleSheet(f"color: {MUTED}; font-size: 9px; padding-bottom: 6px;")
-        number_row.addWidget(unit, 0, Qt.AlignmentFlag.AlignBottom)
+        self._unit = QLabel("BPM", self._panel)
+        self._unit.setStyleSheet(f"color: {MUTED}; font-size: 9px; padding-bottom: 6px;")
+        number_row.addWidget(self._unit, 0, Qt.AlignmentFlag.AlignBottom)
         number_row.addStretch(1)
         col.addLayout(number_row)
 
@@ -167,9 +178,10 @@ class FloatingWindow(QWidget):
         else:
             self._source = source if source else "心率服务"
             self._seconds_ago = 0
-        color = ACCENT
+        color = self._number_color()
+        muted = self._muted_color()
         self._bpm_label.setText(str(bpm) if bpm else "--")
-        self._bpm_label.setStyleSheet(f"color: {color if bpm else MUTED};")
+        self._bpm_label.setStyleSheet(f"color: {color if bpm else muted};")
         self._heart.set_bpm(bpm or 0, color)
         self._refresh_meta()
         self.update()
@@ -186,7 +198,7 @@ class FloatingWindow(QWidget):
                 self._source = ""
                 self._heart.set_bpm(0)
                 self._bpm_label.setText("--")
-                self._bpm_label.setStyleSheet(f"color: {MUTED};")
+                self._bpm_label.setStyleSheet(f"color: {self._muted_color()};")
             else:
                 bpm = self._history_value()
                 if bpm is None:
@@ -194,7 +206,7 @@ class FloatingWindow(QWidget):
                     self._source = ""
                     self._heart.set_bpm(0)
                     self._bpm_label.setText("--")
-                    self._bpm_label.setStyleSheet(f"color: {MUTED};")
+                    self._bpm_label.setStyleSheet(f"color: {self._muted_color()};")
         elif self._bpm is None:
             self.set_hr(None, self._source, self._address, self._device)
         self.setToolTip(f"{self._device}\n{address}" if address else self._device)
@@ -236,6 +248,36 @@ class FloatingWindow(QWidget):
         self._refresh_meta()
         self.update()
 
+    # ------------------------------------------------------ 游戏中显示方式
+    def set_game_display_mode(self, mode: str) -> None:
+        """设置游戏运行时悬浮窗的显示方式：normal / transparent / hidden。
+
+        "hidden" 由 Controller 负责整窗隐藏；这里只处理
+        "transparent"（隐藏拟物底板）与恢复。
+        """
+        self._game_float_mode = mode if mode in (
+            GAME_FLOAT_NORMAL, GAME_FLOAT_TRANSPARENT, GAME_FLOAT_HIDDEN
+        ) else GAME_FLOAT_NORMAL
+        self._apply_game_display_mode()
+
+    def _apply_game_display_mode(self) -> None:
+        transparent = bool(
+            self._game_name and self._game_float_mode == GAME_FLOAT_TRANSPARENT
+        )
+        self._game_transparent = transparent
+        self._panel.set_transparent(transparent)
+        self._unit.setStyleSheet(
+            f"color: {self._muted_color()}; font-size: 9px; padding-bottom: 6px;"
+        )
+        self._refresh_meta()
+        self.update()
+
+    def _number_color(self) -> str:
+        return TEXT_ON_GAME if self._game_transparent else ACCENT
+
+    def _muted_color(self) -> str:
+        return TEXT_ON_GAME_MUTED if self._game_transparent else MUTED
+
     def set_game_info(self, game_name: str = "", bpm: int | None = None,
                       low: int | None = None, high: int | None = None) -> None:
         """悬浮窗展示当前正在运行的游戏与该场心率数据。
@@ -243,24 +285,29 @@ class FloatingWindow(QWidget):
         游戏态下主数字切换成该场最新心率，区间行显示该场最低–最高，
         底部显示游戏名——这样一眼看到的就是"玩这款游戏时的心率"。
         """
+        name_changed = self._game_name != (game_name or "")
         self._game_name = game_name or ""
         self._game_bpm = bpm
         self._game_low = low
         self._game_high = high
+        if name_changed:
+            self._apply_game_display_mode()
         # 游戏态下始终显示游戏名行，即使用户隐藏了设备名
         self._device_label.setVisible(bool(self._game_name) or self._show_device)
+        number = self._number_color()
+        muted = self._muted_color()
         if self._game_name:
             shown = self._game_bpm or self._bpm
             self._bpm_label.setText(str(shown) if shown else "--")
-            self._bpm_label.setStyleSheet(f"color: {ACCENT if shown else MUTED};")
-            self._heart.set_bpm(shown or 0, ACCENT)
+            self._bpm_label.setStyleSheet(f"color: {number if shown else muted};")
+            self._heart.set_bpm(shown or 0, number)
         else:
             # 退出游戏态：恢复实时心率显示
             self._bpm_label.setText(str(self._bpm) if self._bpm else "--")
             self._bpm_label.setStyleSheet(
-                f"color: {ACCENT if self._bpm else MUTED};"
+                f"color: {number if self._bpm else muted};"
             )
-            self._heart.set_bpm(self._bpm or 0, ACCENT)
+            self._heart.set_bpm(self._bpm or 0, number)
         self._refresh_meta()
         self.update()
 
@@ -297,9 +344,11 @@ class FloatingWindow(QWidget):
             if self._bpm and self._show_zone and not self._game_name
             else ""
         )
-        self._meta.setStyleSheet(
-            f"color: {ZONE_COLORS.get(zone, MUTED)}; font-size: 10px;"
+        meta_color = (
+            TEXT_ON_GAME_MUTED if self._game_transparent
+            else ZONE_COLORS.get(zone, MUTED)
         )
+        self._meta.setStyleSheet(f"color: {meta_color}; font-size: 10px;")
 
         # 游戏态：底部只显示游戏名，保持清晰不截断
         if self._game_name:
@@ -307,7 +356,8 @@ class FloatingWindow(QWidget):
             if len(game_text) > 24:
                 game_text = game_text[:23] + "…"
             self._device_label.setText(game_text)
-            self._device_label.setStyleSheet("color: #6d5dfc; font-size: 9px;")
+            game_color = "#c4b5fd" if self._game_transparent else "#6d5dfc"
+            self._device_label.setStyleSheet(f"color: {game_color}; font-size: 9px;")
         else:
             name = self._device or "打开主界面选择手环"
             if self._source:
@@ -315,10 +365,16 @@ class FloatingWindow(QWidget):
             if len(name) > 22:
                 name = name[:21] + "…"
             self._device_label.setText(name)
-            self._device_label.setStyleSheet("color: #5f6d80; font-size: 9px;")
+            name_color = (
+                TEXT_ON_GAME_MUTED if self._game_transparent else "#5f6d80"
+            )
+            self._device_label.setStyleSheet(f"color: {name_color}; font-size: 9px;")
 
     # ------------------------------------------------------------------ 绘制
     def paintEvent(self, event) -> None:  # noqa: N802
+        if self._game_transparent:
+            # 隐藏背景模式连外阴影一起去掉，真正"悬浮"在游戏画面上
+            return
         # 与页面同一光源的柔和灰影，避免纯黑阴影破坏材质感
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)

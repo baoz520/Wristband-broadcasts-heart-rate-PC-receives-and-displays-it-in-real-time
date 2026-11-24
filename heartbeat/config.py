@@ -45,6 +45,7 @@ class Settings:
     game_custom: list[str] = field(default_factory=list)  # 自定义进程名（支持 名=展示名）
     game_record_sessions: bool = True       # 游戏期间记录为历史会话
     game_show_on_float: bool = True         # 悬浮窗显示当前游戏
+    game_float_mode: str = "transparent"    # 游戏中悬浮窗：normal / transparent / hidden
     game_poll_seconds: int = 4              # 检测轮询间隔
 
     @classmethod

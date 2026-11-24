@@ -84,6 +84,7 @@ class Controller(QObject):
         self._game_pid: int | None = None
         self._game_name = ""
         self._game_extra: list[str] = list(self.settings.game_custom or [])
+        self._game_auto_hidden = False  # 因游戏而临时隐藏悬浮窗，退出游戏后恢复
         self._settings_window = None
 
         self._build_tray()
@@ -176,6 +177,9 @@ class Controller(QObject):
         self._act_close_prompt.blockSignals(False)
 
         self.floating.set_locked(self.settings.floating_locked)
+        self.floating.set_game_display_mode(
+            getattr(self.settings, "game_float_mode", "transparent")
+        )
         self.floating.set_appearance(
             width=self.settings.float_width,
             opacity=self.settings.float_opacity,
@@ -267,6 +271,7 @@ class Controller(QObject):
             sw.gameCustomChanged.connect(self._on_game_custom_changed)
             sw.gameRecordChanged.connect(self._save_settings)
             sw.gameShowFloatChanged.connect(self._on_game_show_float_changed)
+            sw.gameFloatModeChanged.connect(self._on_game_float_mode_changed)
             sw.gamePollChanged.connect(self._on_game_poll_changed)
         else:
             # 重新打开时把当前设置同步回界面
@@ -312,6 +317,10 @@ class Controller(QObject):
         self._act_float.setChecked(visible)
         self._act_float.blockSignals(False)
         if visible:
+            if self._game_auto_hidden and self.settings.game_detect_enabled:
+                # 游戏期间整窗自动隐藏：用户手动打开开关也保持隐藏，退出游戏再恢复
+                self._save_settings()
+                return
             if self.floating.x() < 0 or self.floating.y() < 0:
                 self.floating.show_near_corner()
             self.floating.show()
@@ -564,8 +573,9 @@ class Controller(QObject):
             self._check_game()
         else:
             self._game_timer.stop()
-            self._finish_game_session()
+            self._finish_game_session(sync_visibility=False)
             self.floating.set_game_info("")
+        self._sync_game_visibility(False)
         self._save_settings()
 
     def _on_game_custom_changed(self, names: list[str]) -> None:
@@ -576,6 +586,29 @@ class Controller(QObject):
         self._save_settings()
         if not enabled:
             self.floating.set_game_info("")
+
+    def _on_game_float_mode_changed(self, mode: str) -> None:
+        """游戏中悬浮窗显示方式改变后立即生效。"""
+        self.settings.game_float_mode = mode
+        self.floating.set_game_display_mode(mode)
+        self._sync_game_visibility(bool(self._game_session))
+        self._save_settings()
+
+    def _sync_game_visibility(self, game_active: bool) -> None:
+        """hidden 模式下：游戏运行时隐藏整窗，退出后按用户开关恢复。"""
+        should_hide = bool(
+            game_active
+            and self.settings.game_detect_enabled
+            and getattr(self.settings, "game_float_mode", "transparent") == "hidden"
+        )
+        if should_hide and self.floating.isVisible():
+            self.floating.hide()
+            self._game_auto_hidden = True
+        elif not should_hide and self._game_auto_hidden:
+            self._game_auto_hidden = False
+            if self.settings.floating_visible:
+                self.floating.show()
+                self.floating.raise_()
 
     def _on_game_poll_changed(self, seconds: int) -> None:
         if self.settings.game_detect_enabled:
@@ -597,12 +630,14 @@ class Controller(QObject):
         if game is None:
             if self._game_session is not None:
                 self._finish_game_session()
+            self.floating.set_game_info("")
+            self._sync_game_visibility(False)
             return
 
         if self._game_pid != game.pid or self._game_name != game.display_name:
             # 切换了游戏：先结束上一场，再开始新的一场
             if self._game_session is not None:
-                self._finish_game_session()
+                self._finish_game_session(sync_visibility=False)
             self._start_game_session(game)
 
         # 悬浮窗显示当前游戏与本次心率统计
@@ -617,6 +652,7 @@ class Controller(QObject):
             )
         elif not self.settings.game_show_on_float:
             self.floating.set_game_info("")
+        self._sync_game_visibility(True)
 
     def _start_game_session(self, game) -> None:
         self._game_pid = game.pid
@@ -637,7 +673,7 @@ class Controller(QObject):
         }
         self.window.append_log(f"检测到正在运行：{game.display_name}，开始记录游戏心率")
 
-    def _finish_game_session(self) -> None:
+    def _finish_game_session(self, sync_visibility: bool = True) -> None:
         if not self._game_session:
             self._game_pid = None
             self._game_name = ""
@@ -662,6 +698,8 @@ class Controller(QObject):
         self._game_session = None
         self._game_pid = None
         self._game_name = ""
+        if sync_visibility:
+            self._sync_game_visibility(False)
 
     def _record_game_hr(self, bpm: int) -> None:
         """把一拍心率记入当前游戏会话。"""

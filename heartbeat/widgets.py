@@ -900,8 +900,17 @@ class SoftCard(QFrame):
     ):
         super().__init__(parent)
         self._radius = float(radius)
+        self._transparent = False
         self.setObjectName(object_name)
         HoverAnimator.setup(self)
+
+    def set_transparent(self, transparent: bool) -> None:
+        """隐藏新拟物底板（游戏中悬浮窗用），只保留一层极淡的底色保证文字可读。"""
+        transparent = bool(transparent)
+        if self._transparent == transparent:
+            return
+        self._transparent = transparent
+        self.update()
 
     def enterEvent(self, event) -> None:
         HoverAnimator.fade(self, 1.0)
@@ -916,6 +925,20 @@ class SoftCard(QFrame):
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         w, h = self.width(), self.height()
         if w <= 0 or h <= 0:
+            p.end()
+            return
+        if self._transparent:
+            # "隐藏背景"模式：清掉之前绘制的拟物底板，仅留几乎不可见的暗色蒙版，
+            # 让心率数字悬在画面上，同时避免浅色文字与明亮游戏画面糊在一起。
+            p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Clear)
+            p.fillRect(self.rect(), Qt.GlobalColor.transparent)
+            p.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(rgba("#0b1220", 42))
+            p.drawRoundedRect(
+                QRectF(0, 0, w, h), min(self._radius, w / 2.0, h / 2.0),
+                min(self._radius, w / 2.0, h / 2.0),
+            )
             p.end()
             return
         r = min(self._radius, w / 2.0, h / 2.0)

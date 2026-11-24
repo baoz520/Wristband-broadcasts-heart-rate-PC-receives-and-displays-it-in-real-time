@@ -97,10 +97,18 @@ def main() -> None:
     painter.end()
     canvas.save(str(OUT / "floating.png"))
 
-    # 悬浮窗游戏态：显示当前游戏与本场心率区间
+    # 悬浮窗游戏态：隐藏拟物底板，只保留亮色数据悬在游戏画面上
+    floating.set_game_display_mode("transparent")
     floating.set_game_info("Counter-Strike 2", bpm=118, low=78, high=148)
     app.processEvents()
-    floating.grab().save(str(OUT / "floating_game.png"))
+    game_canvas = QPixmap(640, 340)
+    game_canvas.fill(QColor("#1d2b3a"))
+    gp = QPainter(game_canvas)
+    gp.setRenderHint(QPainter.RenderHint.Antialiasing)
+    gp.fillRect(0, 0, 640, 170, QColor("#2c4358"))
+    gp.drawPixmap(330, 104, floating.grab())
+    gp.end()
+    game_canvas.save(str(OUT / "floating_game.png"))
     floating.set_game_info("")
 
     # 历史记录窗口：演示三次连接的汇总曲线
