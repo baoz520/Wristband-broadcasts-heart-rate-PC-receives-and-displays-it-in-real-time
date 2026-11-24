@@ -33,6 +33,20 @@ class Settings:
     close_prompt_enabled: bool = True
     close_default_action: str = "minimize"
 
+    # 悬浮窗自定义
+    float_width: int = 268          # 悬浮窗宽度（高度按比例）
+    float_opacity: int = 100        # 不透明度 40-100
+    float_show_heart: bool = True   # 显示心跳图标
+    float_show_zone: bool = True    # 显示心率区间
+    float_show_device: bool = True  # 显示设备名
+
+    # 游戏检测
+    game_detect_enabled: bool = False       # 是否检测游戏进程
+    game_custom: list[str] = field(default_factory=list)  # 自定义进程名（支持 名=展示名）
+    game_record_sessions: bool = True       # 游戏期间记录为历史会话
+    game_show_on_float: bool = True         # 悬浮窗显示当前游戏
+    game_poll_seconds: int = 4              # 检测轮询间隔
+
     @classmethod
     def path(cls) -> Path:
         return config_dir() / "settings.json"

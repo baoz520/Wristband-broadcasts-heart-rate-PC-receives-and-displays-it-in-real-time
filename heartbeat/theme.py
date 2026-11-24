@@ -202,6 +202,38 @@ QPlainTextEdit#Log {{
     font-size: 10px;
     padding: 6px;
 }}
+QLineEdit#RecessedInput {{
+    background: {BASE};
+    border: 2px solid {SHADOW_GREY};
+    border-radius: 12px;
+    padding: 6px 10px;
+    color: {INK};
+    font-size: 12px;
+    selection-background-color: {BLURPLE};
+}}
+QLineEdit#RecessedInput:focus {{
+    border-color: {BLURPLE};
+}}
+QSlider::groove:horizontal {{
+    background: {SHADOW_GREY};
+    height: 6px;
+    border-radius: 3px;
+}}
+QSlider::sub-page:horizontal {{
+    background: {BLURPLE};
+    border-radius: 3px;
+}}
+QSlider::handle:horizontal {{
+    background: {BASE};
+    border: 2px solid {SHADOW_GREY};
+    width: 16px;
+    height: 16px;
+    margin: -6px 0;
+    border-radius: 8px;
+}}
+QSlider::handle:horizontal:hover {{
+    border-color: {BLURPLE};
+}}
 QPlainTextEdit#Log QScrollBar:vertical {{
     width: 4px;
 }}

@@ -61,6 +61,14 @@ class FloatingWindow(QWidget):
         self._address = ""
         self._history_mode = True
         self._history_by_device: dict[str, list[list[int]]] = {}
+        # 外观自定义状态
+        self._show_zone = True
+        self._show_device = True
+        # 当前游戏状态
+        self._game_name = ""
+        self._game_bpm: Optional[int] = None
+        self._game_low: Optional[int] = None
+        self._game_high: Optional[int] = None
 
         self._build_ui()
 
@@ -200,6 +208,62 @@ class FloatingWindow(QWidget):
         self._close.setVisible(not locked)
         self.update()
 
+    # ---------------------------------------------------------- 外观自定义
+    def set_appearance(
+        self,
+        *,
+        width: int | None = None,
+        opacity: int | None = None,
+        show_heart: bool | None = None,
+        show_zone: bool | None = None,
+        show_device: bool | None = None,
+    ) -> None:
+        """应用悬浮窗自定义设置，立即生效。"""
+        if width is not None:
+            width = max(220, min(420, int(width)))
+            # 高度随宽度按比例变化，保持内容不挤压
+            height = int(round(122 * width / 268))
+            self.setFixedSize(width, height)
+            self._close.move(self.width() - 34, 16)
+        if opacity is not None:
+            self.setWindowOpacity(max(0.4, min(1.0, int(opacity) / 100.0)))
+        if show_heart is not None:
+            self._heart.setVisible(bool(show_heart))
+        if show_zone is not None:
+            self._show_zone = bool(show_zone)
+        if show_device is not None:
+            self._device_label.setVisible(bool(show_device) or bool(self._game_name))
+        self._refresh_meta()
+        self.update()
+
+    def set_game_info(self, game_name: str = "", bpm: int | None = None,
+                      low: int | None = None, high: int | None = None) -> None:
+        """悬浮窗展示当前正在运行的游戏与该场心率数据。
+
+        游戏态下主数字切换成该场最新心率，区间行显示该场最低–最高，
+        底部显示游戏名——这样一眼看到的就是"玩这款游戏时的心率"。
+        """
+        self._game_name = game_name or ""
+        self._game_bpm = bpm
+        self._game_low = low
+        self._game_high = high
+        # 游戏态下始终显示游戏名行，即使用户隐藏了设备名
+        self._device_label.setVisible(bool(self._game_name) or self._show_device)
+        if self._game_name:
+            shown = self._game_bpm or self._bpm
+            self._bpm_label.setText(str(shown) if shown else "--")
+            self._bpm_label.setStyleSheet(f"color: {ACCENT if shown else MUTED};")
+            self._heart.set_bpm(shown or 0, ACCENT)
+        else:
+            # 退出游戏态：恢复实时心率显示
+            self._bpm_label.setText(str(self._bpm) if self._bpm else "--")
+            self._bpm_label.setStyleSheet(
+                f"color: {ACCENT if self._bpm else MUTED};"
+            )
+            self._heart.set_bpm(self._bpm or 0, ACCENT)
+        self._refresh_meta()
+        self.update()
+
     def _zone(self) -> str:
         if not self._bpm:
             return "静息"
@@ -209,8 +273,15 @@ class FloatingWindow(QWidget):
 
     def _refresh_meta(self) -> None:
         parts: list[str] = []
-        if self._bpm:
-            parts.append(self._zone())
+        if self._game_name:
+            # 游戏态：区间行展示该场最低–最高心率
+            if self._game_low is not None and self._game_high is not None:
+                parts.append(f"本场 {self._game_low}–{self._game_high} BPM")
+            else:
+                parts.append("本场心率")
+        elif self._bpm:
+            if self._show_zone:
+                parts.append(self._zone())
             if self._seconds_ago >= 0:
                 if self._seconds_ago < 60:
                     parts.append(f"{self._seconds_ago} 秒前")
@@ -221,16 +292,30 @@ class FloatingWindow(QWidget):
         else:
             parts.append(STATE_TEXT.get(self._state, self._state))
         self._meta.setText(" · ".join(parts))
-        zone = self._zone() if self._bpm else ""
+        zone = (
+            self._zone()
+            if self._bpm and self._show_zone and not self._game_name
+            else ""
+        )
         self._meta.setStyleSheet(
             f"color: {ZONE_COLORS.get(zone, MUTED)}; font-size: 10px;"
         )
-        name = self._device or "打开主界面选择手环"
-        if self._source:
-            name = f"{name} · {self._source}"
-        if len(name) > 22:
-            name = name[:21] + "…"
-        self._device_label.setText(name)
+
+        # 游戏态：底部只显示游戏名，保持清晰不截断
+        if self._game_name:
+            game_text = f"[游戏] {self._game_name}"
+            if len(game_text) > 24:
+                game_text = game_text[:23] + "…"
+            self._device_label.setText(game_text)
+            self._device_label.setStyleSheet("color: #6d5dfc; font-size: 9px;")
+        else:
+            name = self._device or "打开主界面选择手环"
+            if self._source:
+                name = f"{name} · {self._source}"
+            if len(name) > 22:
+                name = name[:21] + "…"
+            self._device_label.setText(name)
+            self._device_label.setStyleSheet("color: #5f6d80; font-size: 9px;")
 
     # ------------------------------------------------------------------ 绘制
     def paintEvent(self, event) -> None:  # noqa: N802

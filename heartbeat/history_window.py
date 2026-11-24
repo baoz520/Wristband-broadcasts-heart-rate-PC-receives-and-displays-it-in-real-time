@@ -9,13 +9,14 @@ from __future__ import annotations
 
 import time
 
-from PySide6.QtCore import QRectF, Qt
-from PySide6.QtGui import QPainter
+from PySide6.QtCore import QRectF, Qt, Signal
+from PySide6.QtGui import QPainter, QPixmap
 from PySide6.QtWidgets import (
     QDialog,
     QHBoxLayout,
     QLabel,
     QScrollArea,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -31,6 +32,11 @@ def _ts_parts(ts: float) -> tuple[str, str]:
         return time.strftime("%Y-%m-%d", local), time.strftime("%H:%M", local)
     except (ValueError, OverflowError, OSError):
         return "—", "—"
+
+
+def session_key(record: dict) -> str:
+    """会话唯一键：地址 + 开始时间，用于定位要删除的记录。"""
+    return f"{record.get('address', '')}|{record.get('start', '')}"
 
 
 def _fmt_duration(start: float, end: float) -> str:
@@ -85,8 +91,11 @@ class _StatStrip(QWidget):
 class SessionCard(SoftCard):
     """单次连接的记录卡片。"""
 
+    deleteRequested = Signal(str)
+
     def __init__(self, record: dict, parent: QWidget | None = None):
         super().__init__(parent, object_name="SoftCard", radius=20.0)
+        self._key = session_key(record)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(18, 14, 18, 14)
         lay.setSpacing(7)
@@ -96,10 +105,23 @@ class SessionCard(SoftCard):
         day, start_hm = _ts_parts(start)
         _, end_hm = _ts_parts(end)
         name = record.get("name") or record.get("address") or "设备"
+        is_game = bool(record.get("game"))
 
         top = QHBoxLayout()
         top.setContentsMargins(0, 0, 0, 0)
         top.setSpacing(8)
+        if is_game:
+            from .game import game_icon
+
+            icon = game_icon(record.get("game_icon", ""), 28)
+            if icon is not None:
+                icon_label = QLabel()
+                icon_label.setPixmap(icon.pixmap(28, 28))
+                icon_label.setFixedSize(28, 28)
+                top.addWidget(icon_label, 0)
+            badge = QLabel("游戏")
+            badge.setObjectName("Badge")
+            top.addWidget(badge, 0)
         title = QLabel(name)
         title.setObjectName("H2")
         top.addWidget(title, 1)
@@ -107,10 +129,19 @@ class SessionCard(SoftCard):
         date.setObjectName("Sub")
         date.setAlignment(Qt.AlignmentFlag.AlignRight)
         top.addWidget(date, 0)
+
+        delete = RaisedButton("删除", self)
+        delete.setProperty("danger", True)
+        delete.setFixedSize(52, 28)
+        delete.setCursor(Qt.CursorShape.PointingHandCursor)
+        delete.setToolTip("删除这条历史记录")
+        delete.clicked.connect(lambda: self.deleteRequested.emit(self._key))
+        top.addWidget(delete, 0, Qt.AlignmentFlag.AlignRight)
         lay.addLayout(top)
 
+        duration_label = "游戏时长" if is_game else "连接时长"
         meta = QLabel(
-            f"{start_hm} – {end_hm} · 连接时长 {_fmt_duration(start, end)}"
+            f"{start_hm} – {end_hm} · {duration_label} {_fmt_duration(start, end)}"
         )
         meta.setObjectName("Sub")
         lay.addWidget(meta)
@@ -146,6 +177,8 @@ class SessionCard(SoftCard):
 
 class HistoryWindow(QDialog):
     """历史记录窗口：显示每次连接的汇总与心率曲线。"""
+
+    deleteRequested = Signal(str)
 
     def __init__(self, sessions: list[dict] | None = None, parent: QWidget | None = None):
         super().__init__(parent)
@@ -222,7 +255,15 @@ class HistoryWindow(QDialog):
             return
 
         for record in reversed(self._sessions):
-            self._cards_lay.addWidget(SessionCard(record))
+            card = SessionCard(record)
+            card.setSizePolicy(
+                card.sizePolicy().horizontalPolicy(),
+                QSizePolicy.Policy.Fixed,
+            )
+            card.deleteRequested.connect(self.deleteRequested.emit)
+            self._cards_lay.addWidget(card)
+        # 剩余空间交给末尾弹簧，避免单条卡片被拉伸出大片空白
+        self._cards_lay.addStretch(1)
 
     def center_on(self, widget: QWidget | None) -> None:
         reference = widget.frameGeometry() if widget is not None else self.frameGeometry()

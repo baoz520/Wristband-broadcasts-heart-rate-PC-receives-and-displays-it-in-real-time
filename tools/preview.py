@@ -21,6 +21,7 @@ from heartbeat.config import Settings  # noqa: E402
 from heartbeat.floating import FloatingWindow  # noqa: E402
 from heartbeat.history_window import HistoryWindow  # noqa: E402
 from heartbeat.main_window import MainWindow  # noqa: E402
+from heartbeat.settings_window import SettingsWindow  # noqa: E402
 from heartbeat.theme import apply_theme  # noqa: E402
 
 OUT = ROOT / "screenshots"
@@ -96,6 +97,12 @@ def main() -> None:
     painter.end()
     canvas.save(str(OUT / "floating.png"))
 
+    # 悬浮窗游戏态：显示当前游戏与本场心率区间
+    floating.set_game_info("Counter-Strike 2", bpm=118, low=78, high=148)
+    app.processEvents()
+    floating.grab().save(str(OUT / "floating_game.png"))
+    floating.set_game_info("")
+
     # 历史记录窗口：演示三次连接的汇总曲线
     demo_sessions = [
         {
@@ -127,6 +134,17 @@ def main() -> None:
             ],
         },
     ]
+    # 追加一场游戏记录，验证游戏图标 / 名称 / 时长显示
+    demo_sessions.append({
+        "address": "game:cs2", "name": "Counter-Strike 2", "game": "Counter-Strike 2",
+        "game_process": "cs2", "game_icon": "",
+        "start": int(time.time() - 2 * 3600), "end": int(time.time() - 2 * 3600 + 35 * 60),
+        "min": 78, "max": 148, "avg": 112.5, "samples": 120,
+        "series": [
+            [int(time.time() - 2 * 3600) + i * 8, 90 + (i * 13) % 45]
+            for i in range(40)
+        ],
+    })
     history = HistoryWindow(demo_sessions)
     history.show()
     history.layout().activate()
@@ -134,7 +152,16 @@ def main() -> None:
     app.processEvents()
     history.grab().save(str(OUT / "history.png"))
 
-    print("saved", OUT / "main.png", OUT / "floating.png", OUT / "history.png")
+    settings = Settings()
+    settings_win = SettingsWindow(settings)
+    settings_win.show()
+    settings_win.layout().activate()
+    app.processEvents()
+    app.processEvents()
+    settings_win.grab().save(str(OUT / "settings.png"))
+
+    print("saved", OUT / "main.png", OUT / "floating.png",
+          OUT / "floating_game.png", OUT / "history.png", OUT / "settings.png")
 
 
 if __name__ == "__main__":

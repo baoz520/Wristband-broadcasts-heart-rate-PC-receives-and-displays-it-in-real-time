@@ -79,6 +79,12 @@ class Controller(QObject):
         }
         self._sessions: list[dict] = [dict(r) for r in (self.settings.history_sessions or [])]
         self._session: dict | None = None
+        # 游戏检测状态
+        self._game_session: dict | None = None   # 当前正在进行的游戏会话
+        self._game_pid: int | None = None
+        self._game_name = ""
+        self._game_extra: list[str] = list(self.settings.game_custom or [])
+        self._settings_window = None
 
         self._build_tray()
         self._wire()
@@ -87,6 +93,12 @@ class Controller(QObject):
         self._ui_timer = QTimer(self)
         self._ui_timer.timeout.connect(self._tick)
         self._ui_timer.start(1000)
+
+        # 游戏进程检测定时器（默认关闭，设置里可开启）
+        self._game_timer = QTimer(self)
+        self._game_timer.timeout.connect(self._check_game)
+        if self.settings.game_detect_enabled:
+            self._game_timer.start(max(2, int(self.settings.game_poll_seconds)) * 1000)
 
         self.app.aboutToQuit.connect(self._on_about_to_quit)
 
@@ -129,6 +141,7 @@ class Controller(QObject):
         self.window.autoReconnectToggled.connect(self._set_auto_reconnect)
         self.window.historyToggled.connect(self._set_history_mode)
         self.window.historyWindowRequested.connect(self.show_history_window)
+        self.window.settingsRequested.connect(self.show_settings_window)
         self.window.connectRequested.connect(self._connect_device)
         self.window.disconnectRequested.connect(self.worker.disconnect_device)
         self.window.scanRequested.connect(self._manual_refresh)
@@ -163,6 +176,13 @@ class Controller(QObject):
         self._act_close_prompt.blockSignals(False)
 
         self.floating.set_locked(self.settings.floating_locked)
+        self.floating.set_appearance(
+            width=self.settings.float_width,
+            opacity=self.settings.float_opacity,
+            show_heart=self.settings.float_show_heart,
+            show_zone=self.settings.float_show_zone,
+            show_device=self.settings.float_show_device,
+        )
         if self.settings.floating_x >= 0 and self.settings.floating_y >= 0:
             self.floating.move(self.settings.floating_x, self.settings.floating_y)
             self.floating.keep_on_screen()
@@ -222,6 +242,7 @@ class Controller(QObject):
 
             self._history_window = HistoryWindow(self._sessions, self.window)
             self._history_window.setWindowIcon(self.window.windowIcon())
+            self._history_window.deleteRequested.connect(self.delete_session)
         else:
             self._history_window.set_sessions(list(self._sessions))
         self._history_window.center_on(self.window)
@@ -229,10 +250,51 @@ class Controller(QObject):
         self._history_window.raise_()
         self._history_window.activateWindow()
 
+    def show_settings_window(self) -> None:
+        """打开设置窗口并连接即时生效信号。"""
+        if self._settings_window is None:
+            from .settings_window import SettingsWindow
+
+            self._settings_window = SettingsWindow(self.settings, self.window)
+            self._settings_window.setWindowIcon(self.window.windowIcon())
+            sw = self._settings_window
+            sw.floatWidthChanged.connect(lambda v: self.floating.set_appearance(width=v))
+            sw.floatOpacityChanged.connect(lambda v: self.floating.set_appearance(opacity=v))
+            sw.floatShowHeartChanged.connect(lambda v: self.floating.set_appearance(show_heart=v))
+            sw.floatShowZoneChanged.connect(lambda v: self.floating.set_appearance(show_zone=v))
+            sw.floatShowDeviceChanged.connect(lambda v: self.floating.set_appearance(show_device=v))
+            sw.gameDetectChanged.connect(self._on_game_detect_changed)
+            sw.gameCustomChanged.connect(self._on_game_custom_changed)
+            sw.gameRecordChanged.connect(self._save_settings)
+            sw.gameShowFloatChanged.connect(self._on_game_show_float_changed)
+            sw.gamePollChanged.connect(self._on_game_poll_changed)
+        else:
+            # 重新打开时把当前设置同步回界面
+            self._settings_window._load_values()
+        self._settings_window.center_on(self.window)
+        self._settings_window.show()
+        self._settings_window.raise_()
+
+    def delete_session(self, key: str) -> None:
+        """删除一条历史会话（按地址+开始时间定位），并刷新各视图与持久化。"""
+        from .history_window import session_key
+
+        before = len(self._sessions)
+        self._sessions = [r for r in self._sessions if session_key(r) != key]
+        if len(self._sessions) == before:
+            return
+        self.settings.history_sessions = list(self._sessions)
+        self.window.set_sessions(list(self._sessions))
+        if self._history_window is not None:
+            self._history_window.set_sessions(list(self._sessions))
+        self._save_settings()
+        self.window.append_log("已删除一条历史记录")
+
     def quit(self) -> None:
         if self._quitting:
             return
         self._quitting = True
+        self._finish_game_session()
         self._save_settings()
         self._ui_timer.stop()
         self.worker.shutdown()
@@ -366,6 +428,18 @@ class Controller(QObject):
         self.window.push_hr(bpm, source, address, name)
         self.floating.set_hr(bpm, source, address, name)
         self.tray.setToolTip(f"心率监测 · {bpm} BPM")
+        # 游戏运行时把心率记入当前游戏会话
+        if self._game_session is not None:
+            self._record_game_hr(bpm)
+            if self.settings.game_show_on_float:
+                series = self._game_session.get("series") or []
+                vals = [int(x[1]) for x in series if isinstance(x, (list, tuple)) and len(x) >= 2]
+                self.floating.set_game_info(
+                    self._game_name,
+                    bpm=vals[-1] if vals else None,
+                    low=min(vals) if vals else None,
+                    high=max(vals) if vals else None,
+                )
 
         samples = self._history_by_device.setdefault(address, [])
         samples.append([int(time.time()), bpm])
@@ -482,6 +556,127 @@ class Controller(QObject):
                 self.floating.set_hr(None)
         elif self._current_state == "connected":
             self.floating.set_hr(None)
+
+    # ------------------------------------------------------------ 游戏检测
+    def _on_game_detect_changed(self, enabled: bool) -> None:
+        if enabled:
+            self._game_timer.start(max(2, int(self.settings.game_poll_seconds)) * 1000)
+            self._check_game()
+        else:
+            self._game_timer.stop()
+            self._finish_game_session()
+            self.floating.set_game_info("")
+        self._save_settings()
+
+    def _on_game_custom_changed(self, names: list[str]) -> None:
+        self._game_extra = list(names or [])
+        self._save_settings()
+
+    def _on_game_show_float_changed(self, enabled: bool) -> None:
+        self._save_settings()
+        if not enabled:
+            self.floating.set_game_info("")
+
+    def _on_game_poll_changed(self, seconds: int) -> None:
+        if self.settings.game_detect_enabled:
+            self._game_timer.start(max(2, int(seconds)) * 1000)
+        self._save_settings()
+
+    def _check_game(self) -> None:
+        """轮询当前运行的游戏；进入/退出游戏时开始或结束一场游戏会话。"""
+        if not self.settings.game_detect_enabled:
+            return
+        from .game import active_game, detect_games
+
+        try:
+            games = detect_games(self._game_extra)
+        except Exception:
+            games = []
+        game = active_game(games)
+
+        if game is None:
+            if self._game_session is not None:
+                self._finish_game_session()
+            return
+
+        if self._game_pid != game.pid or self._game_name != game.display_name:
+            # 切换了游戏：先结束上一场，再开始新的一场
+            if self._game_session is not None:
+                self._finish_game_session()
+            self._start_game_session(game)
+
+        # 悬浮窗显示当前游戏与本次心率统计
+        if self.settings.game_show_on_float and self._game_session is not None:
+            series = self._game_session.get("series") or []
+            vals = [int(x[1]) for x in series if isinstance(x, (list, tuple)) and len(x) >= 2]
+            self.floating.set_game_info(
+                game.display_name,
+                bpm=vals[-1] if vals else None,
+                low=min(vals) if vals else None,
+                high=max(vals) if vals else None,
+            )
+        elif not self.settings.game_show_on_float:
+            self.floating.set_game_info("")
+
+    def _start_game_session(self, game) -> None:
+        self._game_pid = game.pid
+        self._game_name = game.display_name
+        self._game_session = {
+            "address": f"game:{game.process}",
+            "name": game.display_name,
+            "game": game.display_name,
+            "game_process": game.process,
+            "game_icon": game.exe or "",
+            "start": int(time.time()),
+            "count": 0,
+            "min": None,
+            "max": None,
+            "sum": 0.0,
+            "last": None,
+            "series": [],
+        }
+        self.window.append_log(f"检测到正在运行：{game.display_name}，开始记录游戏心率")
+
+    def _finish_game_session(self) -> None:
+        if not self._game_session:
+            self._game_pid = None
+            self._game_name = ""
+            return
+        count = int(self._game_session.get("count") or 0)
+        if count > 0 and self.settings.game_record_sessions:
+            self._game_session["end"] = int(time.time())
+            self._game_session["samples"] = count
+            self._game_session["avg"] = round(
+                float(self._game_session.get("sum") or 0.0) / count, 1
+            )
+            record = dict(self._game_session)
+            self._sessions.append(record)
+            if len(self._sessions) > 50:
+                self._sessions = self._sessions[-50:]
+            self.window.set_sessions(list(self._sessions))
+            self.settings.history_sessions = list(self._sessions)
+            if self._history_window is not None:
+                self._history_window.set_sessions(list(self._sessions))
+            self.window.append_log(f"游戏结束：{self._game_name}，已保存本场心率记录")
+        self.floating.set_game_info("")
+        self._game_session = None
+        self._game_pid = None
+        self._game_name = ""
+
+    def _record_game_hr(self, bpm: int) -> None:
+        """把一拍心率记入当前游戏会话。"""
+        if self._game_session is None:
+            return
+        s = self._game_session
+        s["count"] = int(s.get("count") or 0) + 1
+        s["sum"] = float(s.get("sum") or 0) + bpm
+        s["min"] = bpm if s.get("min") is None else min(int(s["min"]), bpm)
+        s["max"] = bpm if s.get("max") is None else max(int(s["max"]), bpm)
+        s["last"] = bpm
+        series = s.setdefault("series", [])
+        series.append([int(time.time()), int(bpm)])
+        if len(series) > 200:
+            del series[:-200]
 
     def _save_settings(self) -> None:
         self.settings.window_geometry = bytes(self.window.saveGeometry().toBase64()).decode("ascii")

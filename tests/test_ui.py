@@ -188,6 +188,60 @@ def main() -> None:
     assert "0 次连接" in empty_window._count.text()
     assert empty_window._cards_lay.count() == 1, "空状态未显示占位提示"
 
+    # 10. 历史记录删除按钮：卡片有删除键，点击后从会话与视图中移除
+    from heartbeat.history_window import SessionCard, session_key
+
+    sample = {
+        "address": "AA:BB:CC:DD:EE:FF", "name": "删除测试",
+        "start": 1000, "end": 1300, "min": 60, "max": 90, "avg": 75.0,
+        "series": [[1000, 60], [1100, 90]],
+    }
+    card = SessionCard(sample)
+    deletes = [b for b in card.findChildren(RaisedButton) if b.text() == "删除"]
+    assert len(deletes) == 1, "历史卡片缺少删除按钮"
+    controller._sessions = [sample]
+    controller.window.set_sessions(controller._sessions)
+    controller.show_history_window()
+    app.processEvents()
+    controller.delete_session(session_key(sample))
+    app.processEvents()
+    assert controller._sessions == [], "删除后会话未被移除"
+    assert all(
+        session_key(r) != session_key(sample) for r in controller._history_window._sessions
+    ), "删除后历史窗口仍显示该记录"
+
+    # 11. 设置窗口：悬浮窗自定义即时生效并持久化
+    from heartbeat.settings_window import SettingsWindow
+
+    controller.show_settings_window()
+    app.processEvents()
+    settings_win = controller._settings_window
+    assert isinstance(settings_win, SettingsWindow), "设置窗口未创建"
+    settings_win._opacity_slider.setValue(70)
+    settings_win._width_slider.setValue(300)
+    settings_win._heart_switch.setChecked(False)
+    settings_win.collect()
+    app.processEvents()
+    assert abs(controller.floating.windowOpacity() - 0.7) < 0.01, "不透明度未生效"
+    assert controller.floating.width() == 300, "悬浮窗宽度未生效"
+    assert controller.settings.float_show_heart is False, "显示项设置未写入"
+
+    # 12. 游戏检测：进程名匹配与游戏会话心率统计
+    from heartbeat.game import GameProcess, match_game
+
+    assert match_game("cs2.exe") == "Counter-Strike 2"
+    assert match_game("mygame.exe", ["mygame.exe=我的游戏"]) == "我的游戏"
+    assert match_game("unknown.exe") is None
+    game = GameProcess(999, "cs2", "", "Counter-Strike 2", True)
+    controller._start_game_session(game)
+    for bpm in (80, 85, 92, 88):
+        controller._record_game_hr(bpm)
+    controller._finish_game_session()
+    last = controller._sessions[-1]
+    assert last.get("game") == "Counter-Strike 2", "游戏会话未保存游戏名"
+    assert last.get("min") == 80 and last.get("max") == 92, "游戏心率统计错误"
+    assert len(last.get("series") or []) == 4, "游戏心率曲线未保存"
+
     controller.quit()
 
     # 关闭测试窗口时不弹模态框（离屏环境下 exec() 行为不稳定）
