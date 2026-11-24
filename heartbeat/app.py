@@ -601,8 +601,10 @@ class Controller(QObject):
             and self.settings.game_detect_enabled
             and getattr(self.settings, "game_float_mode", "transparent") == "hidden"
         )
-        if should_hide and self.floating.isVisible():
-            self.floating.hide()
+        if should_hide:
+            # 即使悬浮窗本来就没显示也记下状态：游戏期间用户打开开关不会被放行
+            if self.floating.isVisible():
+                self.floating.hide()
             self._game_auto_hidden = True
         elif not should_hide and self._game_auto_hidden:
             self._game_auto_hidden = False

@@ -8,8 +8,9 @@
 4. Unreal 等引擎的 ``xxx-Win64-Shipping.exe`` 命名特征；
 5. 前台窗口标题补充（例如java启动的 Minecraft）。
 
-Steam、Epic 启动器、战网、WeGame、米哈游启动器等**不算游戏进程**，
-会被显式排除；只有真正的游戏本体才进入统计。
+Steam、Epic 启动器、战网、WeGame、米哈游启动器，以及 Wallpaper Engine /
+Lively 等动态壁纸（含 Steam 创意工坊壁纸）都**不算游戏进程**，会被显式排除；
+只有真正的游戏本体才进入统计。
 
 非 Windows 平台所有检测函数安全返回空结果，便于测试与导入。
 """
@@ -286,10 +287,28 @@ NON_GAME_PROCESSES: set[str] = {
     "powershell", "cmd", "python", "pythonw", "node", "code",
 }
 
+# 动态壁纸 / 桌面美化工具：不是游戏，也不能靠"安装路径在 Steam 下"误判成游戏。
+# Wallpaper Engine 的壁纸本体在 steamapps\workshop\content\431960 下，进程名五花八门，
+# 因此既排除进程名前缀，也排除它的安装与创意工坊路径。
+WALLPAPER_PROCESS_PREFIXES: tuple[str, ...] = (
+    "wallpaper", "webwallpaper", "livelywallpaper", "rainmeter", "deskscape",
+)
+WALLPAPER_PROCESSES: set[str] = {
+    "lively", "lively wallpaper", "deskscenes", "pushwallpaper",
+}
+WALLPAPER_PATH_MARKERS: tuple[str, ...] = (
+    "steamapps\\workshop\\content\\431960",  # Wallpaper Engine 的 Steam AppID
+    "steamapps\\common\\wallpaper_engine",
+    "\\wallpaper engine\\",
+    "\\wallpaper_engine\\",
+    "\\lively wallpaper\\",
+    "\\lively\\wallpapers\\",
+    "\\deskscenes\\",
+)
+
 # 这些安装路径特征说明程序来自游戏平台 / 游戏目录，即使进程名陌生也识别为游戏。
 GAME_PATH_MARKERS: tuple[str, ...] = (
     "steamapps\\common",
-    "steamapps\\workshop",
     "\\epic games\\",
     "\\gog galaxy\\games\\",
     "\\battle.net\\",
@@ -391,6 +410,19 @@ def _game_from_path(exe: str) -> str | None:
     return None
 
 
+def _is_wallpaper(name: str, exe: str = "") -> bool:
+    """判断是不是动态壁纸 / 桌面美化进程（Wallpaper Engine、Lively 等）。"""
+    if any(name.startswith(prefix) for prefix in WALLPAPER_PROCESS_PREFIXES):
+        return True
+    if name in WALLPAPER_PROCESSES:
+        return True
+    if exe:
+        path = exe.replace("/", "\\").lower()
+        if any(marker in path for marker in WALLPAPER_PATH_MARKERS):
+            return True
+    return False
+
+
 def _game_from_title(title: str) -> str | None:
     if not title:
         return None
@@ -428,6 +460,9 @@ def match_game(
         elif _normalize(custom) == name:
             return custom
 
+    # 壁纸进程优先排除（自定义清单在上面已优先处理，仍可强制指定）
+    if _is_wallpaper(name, exe):
+        return None
     if name in NON_GAME_PROCESSES:
         # javaw 是通用运行时：只有前台标题明确是某个游戏时才算游戏
         if name in TITLE_FALLBACK_PROCESSES:

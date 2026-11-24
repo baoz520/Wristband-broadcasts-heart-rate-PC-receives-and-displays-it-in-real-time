@@ -259,6 +259,18 @@ def main() -> None:
     assert match_game("MyGame-Win64-Shipping.exe") == "MyGame", "引擎命名未识别"
     assert match_game("javaw.exe", window_title="Minecraft 1.20.4") == "我的世界"
 
+    # Wallpaper Engine 等动态壁纸即使在 Steam 目录下也不能算游戏
+    wallpaper_paths = [
+        r"C:\Program Files (x86)\Steam\steamapps\common\wallpaper_engine\bin\wallpaper64.exe",
+        r"C:\Program Files (x86)\Steam\steamapps\workshop\content\431960\3124158758\scene.exe",
+    ]
+    assert match_game("wallpaper64.exe", exe=wallpaper_paths[0]) is None
+    assert match_game("scene.exe", exe=wallpaper_paths[1]) is None
+    assert match_game("LivelyWallpaper.exe") is None
+    assert match_game(
+        "scene.exe", exe=wallpaper_paths[1], extra=["scene.exe=我指定的游戏"]
+    ) == "我指定的游戏", "自定义清单应能覆盖壁纸排除"
+
     # 14. 悬浮窗游戏中自动隐藏背景 / 整窗隐藏，退出游戏后恢复
     controller._on_game_float_mode_changed("transparent")
     controller.floating.set_game_info("原神", bpm=88, low=80, high=95)
@@ -268,6 +280,8 @@ def main() -> None:
     assert not controller.floating._game_transparent, "退出游戏后背景未恢复"
 
     controller._on_game_float_mode_changed("hidden")
+    # 用户可能已经手动隐藏悬浮窗，测试显式打开以验证"退出游戏后恢复"
+    controller.set_floating(True)
     controller._start_game_session(game)
     controller._sync_game_visibility(True)
     assert not controller.floating.isVisible(), "游戏中悬浮窗未自动隐藏"
