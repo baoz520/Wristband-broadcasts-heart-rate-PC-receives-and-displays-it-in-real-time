@@ -283,11 +283,21 @@ def main() -> None:
     settings_win._opacity_slider.setValue(70)
     settings_win._width_slider.setValue(300)
     settings_win._heart_switch.setChecked(False)
+    assert controller.floating._heart.isHidden(), "心跳图标开关未即时生效"
     settings_win.collect()
     app.processEvents()
     assert abs(controller.floating.windowOpacity() - 0.7) < 0.01, "不透明度未生效"
     assert controller.floating.width() == 300, "悬浮窗宽度未生效"
     assert controller.settings.float_show_heart is False, "显示项设置未写入"
+
+    # 11b. 状态判断结果应直接显示在心率标签上
+    from heartbeat.hr import HeartState
+
+    excited = HeartState("兴奋", "#f0a35e", delta=28.0, baseline=65.0, confidence=0.9)
+    controller.floating.set_hr(95, "实时", "", "", state=excited)
+    assert controller.floating._zone() == "兴奋", "悬浮窗未显示状态"
+    controller.window.push_hr(95, "实时", "", "", state=excited)
+    assert "兴奋" in controller.window._zone.text(), "主界面未显示状态"
 
     # 12. 游戏检测：进程名匹配与游戏会话心率统计
     from heartbeat.game import GameProcess, match_game

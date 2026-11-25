@@ -22,11 +22,13 @@ from heartbeat.ble import DeviceInfo  # noqa: E402
 from heartbeat.config import Settings  # noqa: E402
 from heartbeat.floating import FloatingWindow  # noqa: E402
 from heartbeat.history_window import HistoryWindow  # noqa: E402
+from heartbeat.hr import HeartState  # noqa: E402
 from heartbeat.main_window import MainWindow  # noqa: E402
 from heartbeat.settings_window import SettingsWindow  # noqa: E402
 from heartbeat.theme import apply_theme  # noqa: E402
 
 OUT = ROOT / "screenshots"
+PREVIEW_STATE = HeartState("兴奋", "#f0a35e", delta=24.0, baseline=66.0, trend=18.0)
 
 
 def main() -> None:
@@ -58,7 +60,7 @@ def main() -> None:
     window.set_devices(devices)
     window.set_link("connected", "C8:47:8C:1A:2B:3C", "Xiaomi Smart Band 8")
     window.set_battery(82)
-    window.push_hr(78, "心率服务")
+    window.push_hr(78, "心率服务", state=PREVIEW_STATE)
     points = deque(
         (time.monotonic() - (len(samples) - i) * 1.5, bpm)
         for i, bpm in enumerate(samples)
@@ -94,7 +96,7 @@ def main() -> None:
 
     floating = FloatingWindow()
     floating.set_link("connected", "C8:47:8C:1A:2B:3C", "Xiaomi Smart Band 8")
-    floating.set_hr(78, "心率服务")
+    floating.set_hr(78, "心率服务", state=PREVIEW_STATE)
     floating.set_locked(False)
     floating.show()
     QTest.qWait(260)

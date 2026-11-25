@@ -6,6 +6,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from heartbeat.hr import (  # noqa: E402
+    HeartStateTracker,
     heart_rate_zone,
     is_heart_rate_service,
     parse_advertisement,
@@ -36,6 +37,22 @@ def main() -> None:
     assert heart_rate_zone(120) == "燃脂"
     assert heart_rate_zone(145) == "有氧"
     assert heart_rate_zone(170) == "峰值"
+
+    # 状态判断基于个人近期基线，而不是当前心率的固定阈值。
+    def make_series(baseline: int, later: int, jitter: int = 0) -> list[list[int]]:
+        samples = [[1000 + i, baseline + (-jitter if i % 2 else jitter)] for i in range(90)]
+        samples.extend(
+            [1090 + i, later + (-jitter if i % 2 else jitter)] for i in range(40)
+        )
+        return samples
+
+    calm_tracker = HeartStateTracker()
+    calm_tracker.update(make_series(70, 70, 1))
+    assert calm_tracker.update(make_series(70, 70, 1)).label == "平静"
+    assert HeartStateTracker().update(make_series(65, 95, 8)).label == "兴奋"
+    assert HeartStateTracker().update(make_series(65, 95, 1)).label == "紧张"
+    assert HeartStateTracker().update(make_series(90, 70, 2)).label == "放松"
+    assert HeartStateTracker().update([[1000, 70]] * 5).label == "采集中"
     print("all hr tests passed")
 
 

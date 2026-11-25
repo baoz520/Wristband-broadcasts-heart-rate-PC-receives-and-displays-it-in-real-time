@@ -120,12 +120,15 @@ class SettingsWindow(QDialog):
 
         sw, self._heart_switch = self._switch("显示心跳图标", "在悬浮窗显示心跳动画", True)
         float_sec.lay.addWidget(sw)
+        self._heart_switch.toggled.connect(self._on_heart_switch)
         float_sec.add_divider()
-        sw, self._zone_switch = self._switch("显示心率区间", "显示静息 / 燃脂等区间", True)
+        sw, self._zone_switch = self._switch("显示心率区间", "显示当前状态与心率区间", True)
         float_sec.lay.addWidget(sw)
+        self._zone_switch.toggled.connect(self._on_zone_switch)
         float_sec.add_divider()
         sw, self._device_switch = self._switch("显示设备名", "在悬浮窗底部显示设备", True)
         float_sec.lay.addWidget(sw)
+        self._device_switch.toggled.connect(self._on_device_switch)
 
         # ---------------- 游戏检测 ----------------
         game_sec = _Section("游戏心率检测")
@@ -473,6 +476,18 @@ class SettingsWindow(QDialog):
         self._custom_status.setText(f"已添加：{display.strip() or name}")
         # collect() 会发出 gameCustomChanged，Controller 立即更新识别清单并保存
         self.collect()
+
+    def _on_heart_switch(self, checked: bool) -> None:
+        self.settings.float_show_heart = bool(checked)
+        self.floatShowHeartChanged.emit(bool(checked))
+
+    def _on_zone_switch(self, checked: bool) -> None:
+        self.settings.float_show_zone = bool(checked)
+        self.floatShowZoneChanged.emit(bool(checked))
+
+    def _on_device_switch(self, checked: bool) -> None:
+        self.settings.float_show_device = bool(checked)
+        self.floatShowDeviceChanged.emit(bool(checked))
 
     def collect(self) -> None:
         """把当前界面值写回 settings 并发出即时生效信号。"""

@@ -892,12 +892,12 @@ class ZoneBadge(SoftPill):
         super().__init__(parent=parent)
         self.set_zone(None)
 
-    def set_zone(self, zone: str | None) -> None:
+    def set_zone(self, zone: str | None, color: str | None = None) -> None:
         if not zone:
             self.set_tone(MUTED)
             self.setText("等待数据")
             return
-        self.set_tone(ZONE_COLORS.get(zone, MUTED))
+        self.set_tone(color or ZONE_COLORS.get(zone, MUTED))
         self.setText(f"●  {zone}")
 
 

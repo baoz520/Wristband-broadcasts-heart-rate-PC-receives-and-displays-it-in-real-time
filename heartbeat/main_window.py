@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
 
 from .chrome import BentoRootPanel, CloseDialog, TitleBar
 from .ble import DeviceInfo
-from .hr import heart_rate_zone
+from .hr import HeartState, HeartStateTracker, heart_rate_zone
 from .theme import CHAMPAGNE, MOONLIGHT, ZONE_COLORS
 from .widgets import (
     BentoCard,
@@ -668,7 +668,12 @@ class MainWindow(QMainWindow):
         self._bpm.setText(str(bpm))
         self._bpm.setStyleSheet(f"color: {CHAMPAGNE};")
         self._heart.set_bpm(bpm, color)
-        self._zone.set_zone(zone)
+        state = HeartStateTracker().update(samples)
+        self._zone.set_zone(state.label, state.color)
+        self._zone.setToolTip(
+            f"相对基线 {state.baseline:.0f} BPM：{state.delta:+.0f} BPM，"
+            f"近一分钟 {state.trend:+.0f} BPM"
+        )
         self._source.setText(f"历史 · {zone} · {ago_text(ts)}")
         # _last_hr_time 统一使用 monotonic 基准（与 _is_live_fresh / _refresh_hint 一致）
         self._last_hr_time = mono_now - max(0.0, wall_now - float(ts))
@@ -748,7 +753,14 @@ class MainWindow(QMainWindow):
             self._apply_history()
         self._refresh_hint()
 
-    def push_hr(self, bpm: int, source: str, address: str = "", name: str = "") -> None:
+    def push_hr(
+        self,
+        bpm: int,
+        source: str,
+        address: str = "",
+        name: str = "",
+        state: HeartState | None = None,
+    ) -> None:
         now = time.monotonic()
         if address:
             self._last_seen_address = address
@@ -758,12 +770,18 @@ class MainWindow(QMainWindow):
         self._last_source = source
         self._history.append((now, bpm))
         self._spark.add(bpm)
-        zone = heart_rate_zone(bpm)
         color = CHAMPAGNE
         self._bpm.setText(str(bpm))
         self._bpm.setStyleSheet(f"color: {CHAMPAGNE};")
         self._heart.set_bpm(bpm, color)
-        self._zone.set_zone(zone)
+        if state is not None:
+            self._zone.set_zone(state.label, state.color)
+            self._zone.setToolTip(
+                f"相对基线 {state.baseline:.0f} BPM：{state.delta:+.0f} BPM，"
+                f"近一分钟 {state.trend:+.0f} BPM"
+            )
+        else:
+            self._zone.set_zone(heart_rate_zone(bpm))
         self._source.setText(source)
         if source == "广播" and self._link_state not in (
             "connected", "connecting", "reconnecting"

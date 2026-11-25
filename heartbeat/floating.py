@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .hr import HeartState, HeartStateTracker, heart_rate_zone
 from .theme import CHAMPAGNE, MOONLIGHT, ZONE_COLORS
 from .widgets import BentoCard, PulseHeart, RaisedButton, animate_show
 
@@ -118,6 +119,7 @@ class FloatingWindow(QWidget):
         self._game_high: Optional[int] = None
         self._game_float_mode = GAME_FLOAT_TRANSPARENT
         self._game_transparent = False
+        self._heart_state: HeartState | None = None
 
         self._build_ui()
 
@@ -197,6 +199,9 @@ class FloatingWindow(QWidget):
         if not address:
             return
         self._history_by_device[address] = list(samples or [])
+        # 历史数据本身不改状态；实时状态由 set_hr 传入，避免覆盖迟滞结果。
+        if self._heart_state is None:
+            self._heart_state = HeartStateTracker().update(self._history_by_device[address])
         self._refresh_meta()
         self.update()
 
@@ -213,7 +218,15 @@ class FloatingWindow(QWidget):
         self._seconds_ago = max(0, int(time.time() - float(ts)))
         return bpm
 
-    def set_hr(self, bpm: Optional[int], source: str = "", address: str = "", name: str = "") -> None:
+    def set_hr(
+        self,
+        bpm: Optional[int],
+        source: str = "",
+        address: str = "",
+        name: str = "",
+        state: HeartState | None = None,
+    ) -> None:
+        self._heart_state = state
         self._address = address or self._device
         if name:
             self._device = name
@@ -375,16 +388,23 @@ class FloatingWindow(QWidget):
         self.update()
 
     def _zone(self) -> str:
+        if self._heart_state is not None:
+            return self._heart_state.label
         if not self._bpm:
             return "静息"
-        from .hr import heart_rate_zone
-
         return heart_rate_zone(self._bpm)
+
+    def _zone_color(self) -> str:
+        if self._heart_state is not None:
+            return self._heart_state.color
+        return ZONE_COLORS.get(self._zone(), MOONLIGHT)
 
     def _refresh_meta(self) -> None:
         parts: list[str] = []
         if self._game_name:
-            # 游戏态：区间行展示该场最低–最高心率
+            # 游戏态：状态与本场心率范围共用一行
+            if self._show_zone and self._heart_state is not None:
+                parts.append(self._heart_state.label)
             if self._game_low is not None and self._game_high is not None:
                 parts.append(f"本场 {self._game_low}–{self._game_high} BPM")
             else:
@@ -409,7 +429,7 @@ class FloatingWindow(QWidget):
         )
         meta_color = (
             TEXT_ON_GAME_MUTED if self._game_transparent
-            else ZONE_COLORS.get(zone, MOONLIGHT)
+            else self._zone_color() if zone else MOONLIGHT
         )
         self._meta.setStyleSheet(f"color: {meta_color}; font-size: 10px;")
 

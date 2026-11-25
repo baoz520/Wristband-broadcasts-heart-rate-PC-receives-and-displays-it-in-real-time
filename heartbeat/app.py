@@ -14,6 +14,7 @@ from .backdrop import Backdrop
 from .ble import BleWorker
 from .config import Settings
 from .floating import FloatingWindow
+from .hr import HeartStateTracker
 from .main_window import MainWindow
 from .theme import apply_theme
 from .widgets import make_app_icon
@@ -86,6 +87,7 @@ class Controller(QObject):
         }
         self._sessions: list[dict] = [dict(r) for r in (self.settings.history_sessions or [])]
         self._session: dict | None = None
+        self._state_trackers: dict[str, HeartStateTracker] = {}
         # 游戏检测状态
         self._game_session: dict | None = None   # 当前正在进行的游戏会话
         self._game_pid: int | None = None
@@ -278,10 +280,15 @@ class Controller(QObject):
             self._settings_window.setWindowIcon(self.window.windowIcon())
             sw = self._settings_window
             sw.floatWidthChanged.connect(lambda v: self.floating.set_appearance(width=v))
+            sw.floatWidthChanged.connect(self._save_settings)
             sw.floatOpacityChanged.connect(lambda v: self.floating.set_appearance(opacity=v))
+            sw.floatOpacityChanged.connect(self._save_settings)
             sw.floatShowHeartChanged.connect(lambda v: self.floating.set_appearance(show_heart=v))
+            sw.floatShowHeartChanged.connect(self._save_settings)
             sw.floatShowZoneChanged.connect(lambda v: self.floating.set_appearance(show_zone=v))
+            sw.floatShowZoneChanged.connect(self._save_settings)
             sw.floatShowDeviceChanged.connect(lambda v: self.floating.set_appearance(show_device=v))
+            sw.floatShowDeviceChanged.connect(self._save_settings)
             sw.gameDetectChanged.connect(self._on_game_detect_changed)
             sw.gameCustomChanged.connect(self._on_game_custom_changed)
             sw.gameRecordChanged.connect(self._save_settings)
@@ -458,9 +465,18 @@ class Controller(QObject):
     # ------------------------------------------------------------------ 回调
     def _on_heart_rate(self, bpm: int, source: str, address: str, name: str) -> None:
         self._last_hr_time = time.monotonic()
-        self.window.push_hr(bpm, source, address, name)
-        self.floating.set_hr(bpm, source, address, name)
-        self.tray.setToolTip(f"心率监测 · {bpm} BPM")
+
+        # 先写入历史，再用同一条序列算状态，保证判断看到的是最新样本。
+        samples = self._history_by_device.setdefault(address, [])
+        samples.append([int(time.time()), bpm])
+        if len(samples) > 200:
+            del samples[:-200]
+        tracker = self._state_trackers.setdefault(address, HeartStateTracker())
+        state = tracker.update(samples)
+
+        self.window.push_hr(bpm, source, address, name, state=state)
+        self.floating.set_hr(bpm, source, address, name, state=state)
+        self.tray.setToolTip(f"心率监测 · {bpm} BPM · {state.label}")
         # 游戏运行时把心率记入当前游戏会话
         if self._game_session is not None:
             self._record_game_hr(bpm)
@@ -474,10 +490,6 @@ class Controller(QObject):
                     high=max(vals) if vals else None,
                 )
 
-        samples = self._history_by_device.setdefault(address, [])
-        samples.append([int(time.time()), bpm])
-        if len(samples) > 200:
-            del samples[:-200]
         self.window.set_device_history(address, samples)
         self.floating.set_device_history(address, samples)
 
