@@ -1,6 +1,6 @@
-"""设置窗口：便当盒网格中的悬浮窗自定义与游戏检测设置。
+"""设置窗口：玻璃面板网格中的悬浮窗自定义与游戏检测设置。
 
-无边框 Snow 外壳 + 响应式 BentoGrid：外观与游戏检测各占一张高卡，
+无边框夜景外壳 + 响应式 BentoGrid：外观与游戏检测各占一张高卡，
 自定义进程占一张跨行宽卡。改动即时通过信号交给 Controller，并持久化。
 """
 
@@ -25,7 +25,7 @@ from .widgets import BentoCard, BentoGrid, RaisedButton, ToggleSwitch
 
 
 class _Section(QWidget):
-    """设置分组：一张 BentoCard，标题在卡内顶部。"""
+    """设置分组：一张玻璃面板，标题在卡内顶部。"""
 
     def __init__(self, title: str, parent: QWidget | None = None):
         super().__init__(parent)

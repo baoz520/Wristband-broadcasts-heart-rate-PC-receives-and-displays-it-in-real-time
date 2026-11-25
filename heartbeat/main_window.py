@@ -25,7 +25,7 @@ from PySide6.QtWidgets import (
 from .chrome import BentoRootPanel, CloseDialog, TitleBar
 from .ble import DeviceInfo
 from .hr import heart_rate_zone
-from .theme import ACCENT, MUTED, ZONE_COLORS
+from .theme import CHAMPAGNE, MOONLIGHT, ZONE_COLORS
 from .widgets import (
     BentoCard,
     PulseHeart,
@@ -111,7 +111,8 @@ class DeviceRow(QFrame):
 
         self._button = RaisedButton("连接")
         self._button.setFixedSize(64, 30)
-        self._button.setProperty("accent", True)
+        # 设备可能同时出现多台，这里统一用玻璃次要按钮，把香槟金留给主 CTA
+        self._button.setProperty("accent", False)
         self._button.setCursor(Qt.CursorShape.PointingHandCursor)
         self._button.clicked.connect(self._on_click)
         lay.addWidget(self._button, 0, Qt.AlignmentFlag.AlignVCenter)
@@ -158,7 +159,7 @@ class DeviceRow(QFrame):
         if self._button.isEnabled() != enabled:
             self._button.setEnabled(enabled)
         self._button.setProperty("danger", connected)
-        self._button.setProperty("accent", not connected)
+        self._button.setProperty("accent", False)
         self._button.style().unpolish(self._button)
         self._button.style().polish(self._button)
         self._button.update()
@@ -336,7 +337,7 @@ class MainWindow(QMainWindow):
 
         title = QLabel("实时心率")
         title.setObjectName("CardTitle")
-        title.setStyleSheet("color: rgba(255,255,255,0.72); font-size: 14px; font-weight: 600;")
+        title.setStyleSheet(f"color: {MOONLIGHT}; font-size: 14px; font-weight: 600;")
         lay.addWidget(title)
 
         main_row = QHBoxLayout()
@@ -346,10 +347,10 @@ class MainWindow(QMainWindow):
         font = QFont("Inter", 56)
         font.setWeight(QFont.Weight.DemiBold)
         self._bpm.setFont(font)
-        self._bpm.setStyleSheet("color: #ffffff;")
+        self._bpm.setStyleSheet(f"color: {CHAMPAGNE};")
         main_row.addWidget(self._bpm, 0, Qt.AlignmentFlag.AlignBottom)
         unit = QLabel("BPM")
-        unit.setStyleSheet("color: rgba(255,255,255,0.62); font-size: 12px; padding-bottom: 14px;")
+        unit.setStyleSheet(f"color: {MOONLIGHT}; font-size: 12px; padding-bottom: 14px;")
         main_row.addWidget(unit, 0, Qt.AlignmentFlag.AlignBottom)
         main_row.addStretch(1)
         self._heart = PulseHeart(58)
@@ -500,7 +501,6 @@ class MainWindow(QMainWindow):
         head.addWidget(self._scan_hint, 0, Qt.AlignmentFlag.AlignVCenter)
         head.addStretch(1)
         refresh = RaisedButton("刷新")
-        refresh.setProperty("accent", True)
         refresh.setCursor(Qt.CursorShape.PointingHandCursor)
         refresh.clicked.connect(self.scanRequested.emit)
         head.addWidget(refresh)
@@ -636,7 +636,7 @@ class MainWindow(QMainWindow):
             return
         ts, bpm = samples[-1]
         zone = heart_rate_zone(bpm)
-        color = ZONE_COLORS.get(zone, ACCENT)
+        color = ZONE_COLORS.get(zone, CHAMPAGNE)
         wall_now, mono_now = time.time(), time.monotonic()
 
         def ago_text(wall_ts: float) -> str:
@@ -666,7 +666,7 @@ class MainWindow(QMainWindow):
         self._stat_max.setText(str(max(hist_vals)))
 
         self._bpm.setText(str(bpm))
-        self._bpm.setStyleSheet("color: #ffffff;")
+        self._bpm.setStyleSheet(f"color: {CHAMPAGNE};")
         self._heart.set_bpm(bpm, color)
         self._zone.set_zone(zone)
         self._source.setText(f"历史 · {zone} · {ago_text(ts)}")
@@ -759,9 +759,9 @@ class MainWindow(QMainWindow):
         self._history.append((now, bpm))
         self._spark.add(bpm)
         zone = heart_rate_zone(bpm)
-        color = ACCENT
+        color = CHAMPAGNE
         self._bpm.setText(str(bpm))
-        self._bpm.setStyleSheet("color: #ffffff;")
+        self._bpm.setStyleSheet(f"color: {CHAMPAGNE};")
         self._heart.set_bpm(bpm, color)
         self._zone.set_zone(zone)
         self._source.setText(source)
@@ -814,7 +814,7 @@ class MainWindow(QMainWindow):
         self._last_hr_time = 0.0
         self._last_source = ""
         self._bpm.setText("--")
-        self._bpm.setStyleSheet("color: rgba(255,255,255,0.7);")
+        self._bpm.setStyleSheet(f"color: {MOONLIGHT};")
         self._heart.set_bpm(0)
         self._zone.set_zone(None)
         self._source.setText("")

@@ -84,7 +84,7 @@ class ProcessPickerDialog(QDialog):
         bar.closeClicked.connect(self.reject)
         root.addWidget(bar)
 
-        # 三张便当盒卡：搜索 / 进程表 / 显示名，统一 16px 间隙
+        # 三张玻璃卡：搜索 / 进程表 / 显示名，统一 16px 间隙
         grid = BentoGrid(root, gap=16, wide=1100, medium=560)
         root._layout.addWidget(grid, 1)
 
@@ -114,10 +114,10 @@ class ProcessPickerDialog(QDialog):
         self._table.setShowGrid(False)
         self._table.setStyleSheet(
             "QTableWidget { background: transparent; border: none; "
-            "font-family: 'Inter', 'Segoe UI', sans-serif; font-size: 12px; color: #18181b; "
-            "selection-background-color: rgba(59,130,246,0.12); selection-color: #18181b; }"
-            "QHeaderView::section { background: #fafafa; border: none; "
-            "color: #71717a; font-size: 11px; padding: 6px; }"
+            "font-family: 'Inter', 'Segoe UI', sans-serif; font-size: 12px; color: #ffffff; "
+            "selection-background-color: rgba(228,184,99,0.18); selection-color: #e4b863; }"
+            "QHeaderView::section { background: rgba(255,255,255,0.04); border: none; "
+            "color: #7c9cc4; font-size: 11px; padding: 6px; }"
             "QTableWidget::item { padding: 4px 6px; border: none; }"
         )
         header = self._table.horizontalHeader()

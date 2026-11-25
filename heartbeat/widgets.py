@@ -1,9 +1,10 @@
-"""自绘控件：便当盒卡片、网格、按钮、开关、心形、走势图与状态胶囊。
+"""自绘控件：玻璃面板、网格、按钮、开关、心形、走势图与状态胶囊。
 
-材质规则（与便当盒规范一致）：
-- Snow `#fafafa` 画布上浮白卡，层级由卡片尺寸而非颜色承担。
-- 卡片 24px 圆角、1px 极浅描边、几乎不可见的软投影；hover 上浮并放大 1%。
-- 小控件沿用缓存高斯模糊阴影基元，但色值已收敛到浅色便当盒色板。
+材质规则（与玻璃拟态规范一致）：
+- 夜景底 + 柔光斑提供可模糊内容；面板只用 8%–14% 的白，绝不成实心块。
+- 三层光必须同时存在：外层深阴影、顶边白色内高光、底边深色内暗缘。
+- hover 500ms：填充升到 14%、描边升到 30%、阴影扩散并上浮 2px。
+- 香槟金只给主 CTA 与关键数字，其余颜色都来自夜景色板。
 """
 
 from __future__ import annotations
@@ -33,6 +34,7 @@ from PySide6.QtGui import (
     QPainterPath,
     QPen,
     QPixmap,
+    QRadialGradient,
 )
 from PySide6.QtWidgets import (
     QAbstractButton,
@@ -49,20 +51,14 @@ from PySide6.QtWidgets import (
 
 from .theme import (
     ACCENT,
-    BASE,
-    BENTO_BORDER,
-    BENTO_CARD,
-    BENTO_EDGE,
-    BENTO_INK,
-    BENTO_SNOW,
-    BENTO_SKY,
-    BENTO_VIOLET,
-    BLURPLE,
+    CHAMPAGNE,
     CORAL,
-    HIGHLIGHT,
-    INK,
+    GLASS_WHITE,
+    MOON_STEEL,
+    MOONLIGHT,
     MUTED,
-    SHADOW_GREY,
+    NIGHT_DEEP,
+    NIGHT_STEEL,
     ZONE_COLORS,
 )
 
@@ -149,45 +145,52 @@ def draw_raised(
     white_alpha: int = 182,
     rim: bool = False,
 ) -> None:
-    """凸起：右下冷灰暗影 + 左上高光，最后铺同色基底。"""
-    d, b = int(round(distance)), int(round(blur))
-    r = int(round(radius))
-    w, h = int(round(rect.width())), int(round(rect.height()))
-    grey, pad_g = blurred_shape(w, h, r, d, d, b, SHADOW_GREY, grey_alpha, hollow=True)
-    white, pad_w = blurred_shape(w, h, r, -d, -d, b, HIGHLIGHT, white_alpha, hollow=True)
+    """玻璃凸起：外深阴影 + 8% 白填充 + 顶高光 / 底暗缘 + 15% 白描边。
 
-    # 阴影只画在圆角轮廓之外，避免高光从圆角切口漏进卡片里形成白色楔形
-    margin = max(pad_g, pad_w) + 4
-    outer = QPainterPath()
-    outer.addRect(rect.adjusted(-margin, -margin, margin, margin))
-    surface = QPainterPath()
-    surface.addRoundedRect(rect, radius, radius)
-    painter.save()
-    painter.setClipPath(outer.subtracted(surface))
+    参数名沿用旧版以便所有调用点平滑迁移；实际色值来自玻璃拟态色板。
+    """
+    r = max(0.0, float(radius))
+    # 外层深阴影：参数由调用点给出，最小 6px 保证厚度可辨
+    d = max(2, int(round(distance)))
+    b = max(6, int(round(blur)))
+    shadow, pad = blurred_shape(
+        max(1, int(rect.width())), max(1, int(rect.height())),
+        int(r), 0, d, b, NIGHT_DEEP, max(90, grey_alpha), hollow=True,
+    )
+    painter.drawPixmap(QPointF(rect.x() - pad, rect.y() - pad), shadow)
+
+    # 玻璃填充：始终半透明，绝不超过 15%
     painter.setPen(Qt.PenStyle.NoPen)
-    painter.drawPixmap(QPointF(rect.x() - pad_g, rect.y() - pad_g), grey)
-    painter.drawPixmap(QPointF(rect.x() - pad_w, rect.y() - pad_w), white)
-    painter.restore()
+    painter.setBrush(rgba(GLASS_WHITE, 20))
+    painter.drawRoundedRect(rect, r, r)
 
-    painter.setPen(Qt.PenStyle.NoPen)
-    painter.setBrush(QColor(BASE))
-    painter.drawRoundedRect(rect, radius, radius)
+    # 顶边 1px 白色内高光 / 底边 1px 深色内暗缘
+    inset = rect.adjusted(1.5, 1.5, -1.5, -1.5)
+    edge_x = r * 0.45
+    if inset.width() > edge_x * 2:
+        painter.setPen(QPen(rgba(GLASS_WHITE, 56), 1.0))
+        painter.drawLine(
+            QPointF(inset.left() + edge_x, inset.top()),
+            QPointF(inset.right() - edge_x, inset.top()),
+        )
+        painter.setPen(QPen(rgba(NIGHT_DEEP, 90), 1.0))
+        painter.drawLine(
+            QPointF(inset.left() + edge_x, inset.bottom()),
+            QPointF(inset.right() - edge_x, inset.bottom()),
+        )
 
-    # 极淡的同色系描边：新拟物没有实色边框，这层 ultra-light 边缘只补足
-    # 卡片与背景之间的轮廓，让"界面边框"可辨又不破坏同色材质。
-    if rim:
-        edge = QPen(rgba(SHADOW_GREY, 58), 1.0)
-        painter.setPen(edge)
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawRoundedRect(rect.adjusted(0.5, 0.5, -0.5, -0.5), radius, radius)
+    # 1px 白色 15% 外描边（hover 时调用点可自行加亮）
+    painter.setPen(QPen(rgba(GLASS_WHITE, 38 if not rim else 46), 1.0))
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    painter.drawRoundedRect(rect.adjusted(0.5, 0.5, -0.5, -0.5), r, r)
 
 
 def draw_recessed(painter: QPainter, rect: QRectF, radius: float, *, depth: float = 9.0) -> None:
-    """凹陷：沿内缘的左上暗影 + 右下高光，元素本身仍是基底色。"""
+    """夜景凹槽：深墨底 + 左上内暗影 + 右下微光，用于轨道与输入槽。"""
     path = QPainterPath()
     path.addRoundedRect(rect, radius, radius)
     painter.setPen(Qt.PenStyle.NoPen)
-    painter.setBrush(QColor(BASE))
+    painter.setBrush(QColor(NIGHT_DEEP))
     painter.drawPath(path)
 
     painter.save()
@@ -195,26 +198,26 @@ def draw_recessed(painter: QPainter, rect: QRectF, radius: float, *, depth: floa
     band = max(4.0, min(depth * 2.4, rect.width() / 2.0, rect.height() / 2.0))
     l, t, rgt, btm = rect.left(), rect.top(), rect.right(), rect.bottom()
 
-    g1 = QLinearGradient(l, t, l, t + band)
-    g1.setColorAt(0.0, rgba(SHADOW_GREY, 165))
-    g1.setColorAt(1.0, rgba(SHADOW_GREY, 0))
-    painter.fillRect(QRectF(l, t, rect.width(), band), QBrush(g1))
+    for grad, fill_rect in (
+        (QLinearGradient(l, t, l, t + band), QRectF(l, t, rect.width(), band)),
+        (QLinearGradient(l, t, l + band, t), QRectF(l, t, band, rect.height())),
+    ):
+        grad.setColorAt(0.0, rgba(NIGHT_DEEP, 210))
+        grad.setColorAt(1.0, rgba(NIGHT_DEEP, 0))
+        painter.fillRect(fill_rect, QBrush(grad))
 
-    g2 = QLinearGradient(l, t, l + band, t)
-    g2.setColorAt(0.0, rgba(SHADOW_GREY, 140))
-    g2.setColorAt(1.0, rgba(SHADOW_GREY, 0))
-    painter.fillRect(QRectF(l, t, band, rect.height()), QBrush(g2))
-
-    g3 = QLinearGradient(rgt, btm, rgt, btm - band)
-    g3.setColorAt(0.0, rgba(HIGHLIGHT, 215))
-    g3.setColorAt(1.0, rgba(HIGHLIGHT, 0))
-    painter.fillRect(QRectF(l, btm - band, rect.width(), band), QBrush(g3))
-
-    g4 = QLinearGradient(rgt, btm, rgt - band, btm)
-    g4.setColorAt(0.0, rgba(HIGHLIGHT, 195))
-    g4.setColorAt(1.0, rgba(HIGHLIGHT, 0))
-    painter.fillRect(QRectF(rgt - band, t, band, rect.height()), QBrush(g4))
+    for grad, fill_rect in (
+        (QLinearGradient(rgt, btm, rgt, btm - band), QRectF(l, btm - band, rect.width(), band)),
+        (QLinearGradient(rgt, btm, rgt - band, btm), QRectF(rgt - band, t, band, rect.height())),
+    ):
+        grad.setColorAt(0.0, rgba(GLASS_WHITE, 38))
+        grad.setColorAt(1.0, rgba(GLASS_WHITE, 0))
+        painter.fillRect(fill_rect, QBrush(grad))
     painter.restore()
+
+    painter.setPen(QPen(rgba(GLASS_WHITE, 30), 1.0))
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    painter.drawRoundedRect(rect.adjusted(0.5, 0.5, -0.5, -0.5), radius, radius)
 
 
 def heart_path(rect: QRectF) -> QPainterPath:
@@ -241,8 +244,8 @@ def make_heart_pixmap(size: int = 64, on_dark: bool = False) -> QPixmap:
     pm.fill(Qt.GlobalColor.transparent)
     p = QPainter(pm)
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
-    bg = QColor("#151b25") if on_dark else QColor(BASE)
-    ink = QColor(ACCENT) if on_dark else QColor(INK)
+    bg = QColor(NIGHT_STEEL)
+    ink = QColor(CHAMPAGNE)
     if on_dark:
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(bg)
@@ -302,7 +305,7 @@ class HoverAnimator:
 
 
 class ToggleSwitch(QAbstractButton):
-    """便当盒开关：浅灰轨道 + 白色旋钮，开启填 Sky。"""
+    """玻璃开关：夜景凹槽轨道 + 玻璃旋钮，开启填香槟金。"""
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -375,9 +378,9 @@ class ToggleSwitch(QAbstractButton):
             distance=3.0 + 1.5 * hv, blur=6.0 + 2 * hv,
             grey_alpha=int(95 + 55 * hv), white_alpha=int(190 + 40 * hv),
         )
-        fill_color = QColor(BLURPLE) if (on and self.isEnabled()) else QColor(BASE)
+        fill_color = QColor(CHAMPAGNE) if (on and self.isEnabled()) else QColor(MOON_STEEL)
         if not self.isEnabled():
-            fill_color = QColor("#c3ccd9")
+            fill_color = QColor(NIGHT_STEEL)
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(fill_color)
         p.drawRoundedRect(knob_rect.adjusted(3, 3, -3, -3), (knob - 6) / 2.0, (knob - 6) / 2.0)
@@ -448,7 +451,7 @@ class PulseHeart(QWidget):
             side * 2 * scale,
         )
         if self._bpm <= 0:
-            p.setBrush(QColor("#b9c2d0"))
+            p.setBrush(QColor(MOON_STEEL))
         else:
             glow = QColor(self._color)
             glow.setAlpha(int(26 + 60 * self._phase))
@@ -530,9 +533,7 @@ class Sparkline(QWidget):
         left, right, top, bottom = 2.0, self.width() - 2.0, 8.0, self.height() - 18.0
         plot = QRectF(left, top, max(1.0, right - left), max(1.0, bottom - top))
 
-        grid_pen = QPen(
-            rgba("#ffffff", 34) if self._dark else rgba(SHADOW_GREY, 90), 1
-        )
+        grid_pen = QPen(rgba(MOON_STEEL, 110), 1)
         grid_pen.setStyle(Qt.PenStyle.DotLine)
         p.setPen(grid_pen)
         for i in range(3):
@@ -541,7 +542,7 @@ class Sparkline(QWidget):
 
         vals = [v for _, v in self._points]
         if len(vals) < 2:
-            p.setPen(QColor("#cbd5e1" if self._dark else MUTED))
+            p.setPen(QColor(MUTED))
             p.setFont(QFont("Inter", 9))
             p.drawText(plot, Qt.AlignmentFlag.AlignCenter, "等待心率数据…")
             p.end()
@@ -580,9 +581,9 @@ class Sparkline(QWidget):
             fill.lineTo(pt)
         fill.lineTo(pts[-1].x(), plot.bottom())
         fill.closeSubpath()
-        fill_color = BENTO_SKY if self._dark else BLURPLE
+        fill_color = CHAMPAGNE
         grad = QLinearGradient(0, plot.top(), 0, plot.bottom())
-        grad.setColorAt(0.0, rgba(fill_color, 70 if self._dark else 40))
+        grad.setColorAt(0.0, rgba(fill_color, 58 if self._dark else 40))
         grad.setColorAt(1.0, rgba(fill_color, 6 if self._dark else 4))
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(grad)
@@ -591,7 +592,7 @@ class Sparkline(QWidget):
         line = QPainterPath(pts[0])
         for pt in pts[1:]:
             line.lineTo(pt)
-        pen = QPen(QColor(BENTO_SKY if self._dark else ACCENT), 2.2)
+        pen = QPen(QColor(CHAMPAGNE), 2.2)
         pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
         p.setPen(pen)
@@ -600,12 +601,12 @@ class Sparkline(QWidget):
 
         last = pts[-1]
         p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(rgba(fill_color, 90))
+        p.setBrush(rgba(fill_color, 80))
         p.drawEllipse(last, 6.0, 6.0)
-        p.setBrush(QColor(BENTO_SKY if self._dark else ACCENT))
+        p.setBrush(QColor(CHAMPAGNE))
         p.drawEllipse(last, 3.1, 3.1)
 
-        p.setPen(QColor("#cbd5e1" if self._dark else MUTED))
+        p.setPen(QColor(MUTED))
         p.setFont(QFont("Inter", 8))
         left_label, mid_label, right_label = self._axis_labels
         p.drawText(QPointF(plot.left(), self.height() - 3), left_label)
@@ -655,7 +656,7 @@ class SignalBars(QWidget):
             h = 4 + i * 3.2
             x = i * (bar_w + gap)
             y = 16 - h
-            color = QColor(ACCENT if i < self._level else "#c3ccd9")
+            color = QColor(CHAMPAGNE if i < self._level else MOON_STEEL)
             if i < self._level:
                 color.setAlpha(230)
             p.setBrush(color)
@@ -664,7 +665,7 @@ class SignalBars(QWidget):
 
 
 class SoftPill(QLabel):
-    """凹陷胶囊：底色与页面一致，只用 inset 阴影和文字颜色表达状态。"""
+    """夜景凹槽胶囊：深墨底 + 内阴影，文字用月光钢表达状态。"""
 
     def __init__(self, text: str = "", parent: QWidget | None = None):
         super().__init__(text, parent)
@@ -697,13 +698,13 @@ class SoftPill(QLabel):
 
 class StatusPill(SoftPill):
     STATE_TONES = {
-        "idle": MUTED,
-        "connecting": "#c08a12",
-        "reconnecting": "#c08a12",
-        "connected": "#1f9d78",
-        "broadcasting": BLURPLE,
-        "disconnected": "#dd4a4a",
-        "error": "#dd4a4a",
+        "idle": MOONLIGHT,
+        "connecting": CHAMPAGNE,
+        "reconnecting": CHAMPAGNE,
+        "connected": "#34d399",
+        "broadcasting": CHAMPAGNE,
+        "disconnected": "#f87171",
+        "error": "#f87171",
     }
 
     def __init__(self, parent: QWidget | None = None):
@@ -730,7 +731,7 @@ class ZoneBadge(SoftPill):
 
 
 class BrandMark(QWidget):
-    """标题旁边的同色小方块 + 心形。"""
+    """标题旁的玻璃小方块 + 香槟金心形。"""
 
     def __init__(self, size: int = 44, parent: QWidget | None = None):
         super().__init__(parent)
@@ -741,10 +742,7 @@ class BrandMark(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         rect = QRectF(0.5, 0.5, self.width() - 1, self.height() - 1)
-        draw_raised(p, rect, 13.0, distance=3.0, blur=6.0, grey_alpha=80, white_alpha=190)
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QColor(BASE))
-        p.drawRoundedRect(rect, 13, 13)
+        draw_raised(p, rect, 13.0, distance=4.0, blur=10.0, grey_alpha=110, white_alpha=190)
         p.drawPixmap(
             (self.width() - self._pix.width()) // 2,
             (self.height() - self._pix.height()) // 2,
@@ -754,7 +752,7 @@ class BrandMark(QWidget):
 
 
 class RaisedButton(QPushButton):
-    """便当盒按钮：12px 圆角，主操作墨黑填充，危险操作橙红填充，次要白底浅描边。"""
+    """玻璃按钮：主 CTA 香槟金胶囊，危险操作柔和红，次要按钮玻璃材质。"""
 
     hover = Property(float, HoverAnimator._get, HoverAnimator._set)
 
@@ -793,53 +791,68 @@ class RaisedButton(QPushButton):
         if w <= 0 or h <= 0:
             p.end()
             return
-        # 便当盒按钮统一 12px 圆角，按下轻微收缩（等效 CSS scale .95）
-        r = min(12.0, w / 2.0, h / 2.0)
+        danger = bool(self.property("danger"))
+        cta = bool(self.property("accent")) or bool(self.property("action"))
+        # 规范：按钮 16px 圆角，主 CTA 用 999px 全圆角胶囊
+        r = min(h / 2.0, 999.0) if cta else min(16.0, w / 2.0, h / 2.0)
         pressed = self._pressed or (self.isDown() and self.isEnabled())
         rect = QRectF(0.5, 0.5, w - 1.0, h - 1.0)
         if pressed:
             rect = rect.adjusted(1.5, 1.5, -1.5, -1.5)
         hv = self.hover if self.isEnabled() else 0.0
+        if cta and hv > 0:
+            rect.translate(0, -1.0 * hv)  # CTA hover 上浮 1px
 
-        danger = bool(self.property("danger"))
-        accent = bool(self.property("accent"))
-        action = bool(self.property("action"))
-        solid = danger or accent or action
         if not self.isEnabled():
-            p.setPen(QPen(QColor(BENTO_EDGE), 1.0))
-            p.setBrush(QColor(BENTO_SNOW if solid else BENTO_CARD))
-        elif solid:
-            p.setPen(Qt.PenStyle.NoPen)
-            if danger:
-                fill = mix_color(CORAL, "#ea580c", hv)
-            elif accent:
-                fill = mix_color(BENTO_SKY, "#2563eb", hv)
-            else:
-                fill = mix_color(BENTO_INK, "#3f3f46", hv)
-            p.setBrush(fill)
-        else:
-            # 次要按钮：白底 + 可辨识描边与软影，和卡片边界语言保持一致
-            shadow, spad = blurred_shape(
-                max(1, w - 2), max(1, h - 2), int(r),
-                0, int(3 + 2 * hv), int(8 + 6 * hv), "#000000", int(10 + 10 * hv),
-                hollow=True,
+            p.setPen(QPen(rgba(GLASS_WHITE, 24), 1.0))
+            p.setBrush(rgba(GLASS_WHITE, 10))
+        elif danger:
+            p.setPen(QPen(rgba(CORAL, 110), 1.0))
+            p.setBrush(rgba(CORAL, int(28 + 28 * hv)))
+        elif cta:
+            # 香槟金光晕：hover 时扩到 25% 金色，由 hover 属性平滑驱动
+            glow, gpad = blurred_shape(
+                max(1, int(rect.width())), max(1, int(rect.height())), int(r),
+                0, 6, 20, CHAMPAGNE, int(40 + 55 * hv), hollow=True,
             )
-            p.drawPixmap(QPointF(rect.x() - spad + 1, rect.y() - spad + 1), shadow)
-            p.setPen(QPen(QColor(BENTO_EDGE), 1.0))
-            p.setBrush(QColor(BENTO_SNOW if hv > 0.5 else BENTO_CARD))
+            p.drawPixmap(QPointF(rect.x() - gpad, rect.y() - gpad), glow)
+            gold = QColor(CHAMPAGNE)
+            gold.setAlpha(int(230 + 25 * hv))
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(gold)
+        else:
+            # 次要按钮：8% → 14% 白填充、15% → 30% 白描边
+            p.setPen(QPen(rgba(GLASS_WHITE, int(38 + 38 * hv)), 1.0))
+            p.setBrush(rgba(GLASS_WHITE, int(20 + 15 * hv)))
         p.drawRoundedRect(rect, r, r)
 
+        # 玻璃按钮的顶边高光 / 底边暗缘（CTA 是实心胶囊，不需要）
+        if not cta and not danger and self.isEnabled() and rect.width() > r * 2:
+            inner = rect.adjusted(1.5, 1.5, -1.5, -1.5)
+            p.setPen(QPen(rgba(GLASS_WHITE, 56), 1.0))
+            p.drawLine(
+                QPointF(inner.left() + r * 0.45, inner.top()),
+                QPointF(inner.right() - r * 0.45, inner.top()),
+            )
+            p.setPen(QPen(rgba(NIGHT_DEEP, 90), 1.0))
+            p.drawLine(
+                QPointF(inner.left() + r * 0.45, inner.bottom()),
+                QPointF(inner.right() - r * 0.45, inner.bottom()),
+            )
+
         if self.hasFocus() and self.focusPolicy() != Qt.FocusPolicy.NoFocus:
-            p.setPen(QPen(QColor(BENTO_SKY), 2))
+            p.setPen(QPen(QColor(CHAMPAGNE), 2))
             p.setBrush(Qt.BrushStyle.NoBrush)
-            p.drawRoundedRect(rect.adjusted(2, 2, -2, -2), max(0.0, r - 2), max(0.0, r - 2))
+            p.drawRoundedRect(rect.adjusted(-3, -3, 3, 3), max(0.0, r + 3), max(0.0, r + 3))
 
         if not self.isEnabled():
-            tone = QColor("#a1a1aa")
-        elif solid:
-            tone = QColor("#ffffff")
+            tone = QColor(MOON_STEEL)
+        elif cta:
+            tone = QColor(NIGHT_DEEP)
+        elif danger:
+            tone = QColor(CORAL)
         else:
-            tone = QColor(BENTO_INK)
+            tone = QColor(GLASS_WHITE)
         f = QFont(self.font())
         f.setPointSize(13)
         f.setWeight(QFont.Weight.Medium)
@@ -850,7 +863,7 @@ class RaisedButton(QPushButton):
 
 
 class SoftCheckBox(QAbstractButton):
-    """便当盒勾选框：浅灰圆角槽 + Sky 勾，键盘焦点可见。"""
+    """玻璃勾选框：夜景凹槽 + 香槟金勾，键盘焦点可见。"""
 
     hover = Property(float, HoverAnimator._get, HoverAnimator._set)
 
@@ -888,7 +901,7 @@ class SoftCheckBox(QAbstractButton):
             mark.moveTo(box.left() + 5.0, box.center().y() + 0.5)
             mark.lineTo(box.left() + 8.5, box.bottom() - 5.0)
             mark.lineTo(box.right() - 4.5, box.top() + 5.0)
-            pen = QPen(QColor(BLURPLE), 2.4)
+            pen = QPen(QColor(CHAMPAGNE), 2.4)
             pen.setCapStyle(Qt.PenCapStyle.RoundCap)
             pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
             p.setPen(pen)
@@ -898,21 +911,21 @@ class SoftCheckBox(QAbstractButton):
         f.setPointSize(12)
         f.setWeight(QFont.Weight.Normal)
         p.setFont(f)
-        p.setPen(mix_color(INK, BLURPLE, self.hover))
+        p.setPen(mix_color(GLASS_WHITE, CHAMPAGNE, self.hover))
         p.drawText(
             QRectF(28.0, 0, max(0.0, self.width() - 28.0), self.height()),
             Qt.AlignmentFlag.AlignVCenter,
             self.text(),
         )
         if self.hasFocus():
-            p.setPen(QPen(QColor(BLURPLE), 2))
+            p.setPen(QPen(QColor(CHAMPAGNE), 2))
             p.setBrush(Qt.BrushStyle.NoBrush)
             p.drawRoundedRect(box.adjusted(-3, -3, 3, 3), 9, 9)
         p.end()
 
 
 class SoftCard(QFrame):
-    """软卡片基类：24px 圆角、柔和投影与 hover 属性，供 BentoCard 复用。"""
+    """玻璃卡片基类：24px 圆角、三层光与 hover 属性，供 BentoCard 复用。"""
 
     hover = Property(float, HoverAnimator._get, HoverAnimator._set)
 
@@ -929,7 +942,7 @@ class SoftCard(QFrame):
         HoverAnimator.setup(self)
 
     def set_transparent(self, transparent: bool) -> None:
-        """隐藏新拟物底板（游戏中悬浮窗用），只保留一层极淡的底色保证文字可读。"""
+        """完全隐藏底板（游戏中悬浮窗用），只保留心率数据与文字阴影。"""
         transparent = bool(transparent)
         if self._transparent == transparent:
             return
@@ -952,22 +965,15 @@ class SoftCard(QFrame):
             p.end()
             return
         if self._transparent:
-            # "隐藏背景"模式：清掉之前绘制的拟物底板，仅留几乎不可见的暗色蒙版，
-            # 让心率数字悬在画面上，同时避免浅色文字与明亮游戏画面糊在一起。
+            # "隐藏背景"模式：清除底板与阴影，真正只留文字悬在游戏画面上。
+            # 文字可读性由浮动窗里的轻量投影负责，这里不再画任何蒙版。
             p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Clear)
             p.fillRect(self.rect(), Qt.GlobalColor.transparent)
-            p.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
-            p.setPen(Qt.PenStyle.NoPen)
-            p.setBrush(rgba("#0b1220", 42))
-            p.drawRoundedRect(
-                QRectF(0, 0, w, h), min(self._radius, w / 2.0, h / 2.0),
-                min(self._radius, w / 2.0, h / 2.0),
-            )
             p.end()
             return
         r = min(self._radius, w / 2.0, h / 2.0)
         hv = self.hover
-        # hover：模糊减半 + 2px 上浮，与规范一致
+        # hover：玻璃填充与描边由 draw_raised 按进度插值，整块上浮 2px
         rect = QRectF(0, -2.0 * hv, w, h)
         draw_raised(
             p, rect, r,
@@ -981,11 +987,11 @@ class SoftCard(QFrame):
 
 
 class BentoCard(SoftCard):
-    """便当盒网格中的卡片：白底 / 墨黑渐变锚点、24px 圆角、极浅描边。
+    """玻璃面板：8% 白填充 + 40px 模糊 + 三层光 + 24px 圆角。
 
-    与基类 SoftCard 的区别：不使用同色材质阴影，而是白卡浮在 Snow 画布上；
-    hover 300ms 内上浮 4px、放大 1%、阴影由 2% 扩到 8%。尺寸本身承担层级，
-    颜色只用于唯一一张锚点卡。
+    与基类 SoftCard 的区别：独立绘制完整的玻璃材质（外层深阴影 / 顶边白
+    高光 / 底边暗缘），hover 500ms 内填充升到 14%、描边升到 30%、上浮 2px。
+    锚点卡用深墨底 + 香槟金微光，保持全站唯一强调色纪律。
     """
 
     def __init__(
@@ -997,8 +1003,8 @@ class BentoCard(SoftCard):
     ):
         super().__init__(parent, object_name=object_name, radius=radius)
         self._anchor = anchor
-        # 便当盒规范：300ms ease-out（HoverAnimator 默认是 180ms）
-        self._hover_anim.setDuration(300)
+        # 玻璃规范：500ms 慢过渡，OutCubic 起手快、收尾稳
+        self._hover_anim.setDuration(500)
 
     @property
     def is_anchor(self) -> bool:
@@ -1017,37 +1023,57 @@ class BentoCard(SoftCard):
             return
 
         hv = self.hover
-        pad = 7.0
-        lift = 4.0 * hv
-        grow = 0.01 * hv
-        cw, ch = max(1.0, w - pad * 2), max(1.0, h - pad * 2)
-        dx, dy = cw * grow / 2.0, ch * grow / 2.0
-        rect = QRectF(pad - dx, pad + lift - dy, cw + dx * 2, ch + dy * 2)
+        pad = 12.0
+        lift = 2.0 * hv
+        rect = QRectF(pad, pad + lift, max(1.0, w - pad * 2), max(1.0, h - pad * 2))
         r = min(self._radius, rect.width() / 2.0, rect.height() / 2.0)
 
-        # 静止态就有一层可辨识的软投影，hover 时再扩散；边界由描边 + 阴影共同建立
+        # 第一层：外层深阴影 0 16px 40px，hover 扩散到 64px 档
         shadow, spad = blurred_shape(
             int(rect.width()), int(rect.height()), int(r),
-            0, int(6 + 3 * hv), int(14 + 16 * hv),
-            "#000000", int(16 + 14 * hv), hollow=True,
+            0, 16, int(40 + 24 * hv), NIGHT_DEEP, int(128 + 25 * hv), hollow=True,
         )
         p.drawPixmap(QPointF(rect.x() - spad, rect.y() - spad), shadow)
 
         if self._anchor:
-            gradient = QLinearGradient(rect.topLeft(), rect.bottomRight())
-            if self._anchor == "gradient":
-                gradient.setColorAt(0.0, QColor(BENTO_SKY))
-                gradient.setColorAt(1.0, QColor(BENTO_VIOLET))
-            else:
-                gradient.setColorAt(0.0, QColor(BENTO_INK))
-                gradient.setColorAt(1.0, QColor("#2f3037"))
-            p.setBrush(gradient)
+            # 深墨锚点卡 + 香槟金微光晕（不是第二强调色，仍是同一束光）
             p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QColor(NIGHT_DEEP))
+            p.drawRoundedRect(rect, r, r)
+            glow = QRadialGradient(
+                rect.right(), rect.top(), max(1.0, rect.width() * 0.95)
+            )
+            glow.setColorAt(0.0, rgba(CHAMPAGNE, 52))
+            glow.setColorAt(1.0, rgba(CHAMPAGNE, 0))
+            p.save()
+            clip = QPainterPath()
+            clip.addRoundedRect(rect, r, r)
+            p.setClipPath(clip)
+            p.setBrush(QBrush(glow))
+            p.drawRect(rect)
+            p.restore()
+            p.setPen(QPen(rgba(CHAMPAGNE, int(48 + 30 * hv)), 1.2))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.drawRoundedRect(rect.adjusted(0.6, 0.6, -0.6, -0.6), r, r)
         else:
-            p.setBrush(QColor(BENTO_CARD))
-            # 外边界比规范基准深一档，白卡在 Snow 画布上才有明确轮廓
-            p.setPen(QPen(QColor(BENTO_EDGE), 1.0))
-        p.drawRoundedRect(rect, r, r)
+            # 第二层：8% → 14% 玻璃填充 + 15% → 30% 白描边
+            p.setPen(QPen(rgba(GLASS_WHITE, int(38 + 38 * hv)), 1.0))
+            p.setBrush(rgba(GLASS_WHITE, int(20 + 15 * hv)))
+            p.drawRoundedRect(rect, r, r)
+            # 第三层：顶边白色内高光 + 底边深色内暗缘
+            inset = rect.adjusted(1.5, 1.5, -1.5, -1.5)
+            ex = r * 0.45
+            if inset.width() > ex * 2:
+                p.setPen(QPen(rgba(GLASS_WHITE, int(56 + 25 * hv)), 1.0))
+                p.drawLine(
+                    QPointF(inset.left() + ex, inset.top()),
+                    QPointF(inset.right() - ex, inset.top()),
+                )
+                p.setPen(QPen(rgba(NIGHT_DEEP, 90), 1.0))
+                p.drawLine(
+                    QPointF(inset.left() + ex, inset.bottom()),
+                    QPointF(inset.right() - ex, inset.bottom()),
+                )
         p.end()
 
 

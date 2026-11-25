@@ -324,19 +324,22 @@ def main() -> None:
     finally:
         picker_module.scan_processes = original_scan
 
-    # 16. 全窗口便当盒风格：卡片组件、统一色板与响应式网格
+    # 16. 全窗口玻璃拟态风格：卡片组件、夜景色板与响应式网格
     from heartbeat.theme import (
         BENTO_BORDER,
         BENTO_CARD,
         BENTO_INK,
         BENTO_SKY,
         BENTO_SNOW,
+        CHAMPAGNE,
+        NIGHT,
     )
     from heartbeat.widgets import BentoCard, BentoGrid
 
     assert (BENTO_SNOW, BENTO_CARD, BENTO_INK, BENTO_BORDER, BENTO_SKY) == (
-        "#fafafa", "#ffffff", "#18181b", "#f4f4f5", "#3b82f6"
-    ), "便当盒色板被改动"
+        "#0b1322", "#16233a", "#ffffff", "#ffffff", "#e4b863"
+    ), "玻璃拟态色板被改动"
+    assert CHAMPAGNE == "#e4b863" and NIGHT == "#0b1322", "夜景 / 香槟金基准色被改动"
     assert all(isinstance(card, BentoCard) for card in hw._cards), (
         "历史窗口卡片不是便当盒卡片"
     )

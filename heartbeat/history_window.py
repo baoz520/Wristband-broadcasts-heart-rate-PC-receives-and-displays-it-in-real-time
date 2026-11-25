@@ -1,6 +1,6 @@
-"""历史记录窗口：便当盒网格中逐条展示每次连接的心率数据。
+"""历史记录窗口：玻璃面板网格中逐条展示每次连接的心率数据。
 
-每张会话是一张 BentoCard：设备 / 游戏名、连接时段与时长、最低 / 最高 /
+每张会话是一张玻璃卡：设备 / 游戏名、连接时段与时长、最低 / 最高 /
 平均心率，以及按采样顺序铺满的历史折线图。最新一条跨整行作为大格，
 其余成对并排，落单的一条再跨整行——尺寸本身就是层级，不需要用颜色区分。
 """
@@ -9,20 +9,21 @@ from __future__ import annotations
 
 import time
 
-from PySide6.QtCore import QRectF, Qt, Signal
+from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (
     QDialog,
     QHBoxLayout,
     QLabel,
     QScrollArea,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
 
 from .chrome import BentoRootPanel, TitleBar
-from .theme import BENTO_EDGE, BENTO_SNOW
-from .widgets import BentoCard, BentoGrid, RaisedButton, Sparkline
+from .theme import GLASS_WHITE, MOON_STEEL, NIGHT_DEEP
+from .widgets import BentoCard, BentoGrid, RaisedButton, Sparkline, rgba
 
 
 def _ts_parts(ts: float) -> tuple[str, str]:
@@ -54,7 +55,7 @@ def _fmt_duration(start: float, end: float) -> str:
 
 
 class _StatStrip(QWidget):
-    """浅色统计条：最低 / 最高 / 平均三列，便当盒白卡里的雪色小格。"""
+    """玻璃统计条：最低 / 最高 / 平均三列，浮在会话卡内的轻量小格。"""
 
     def __init__(self, low, high, avg, parent: QWidget | None = None):
         super().__init__(parent)
@@ -80,9 +81,21 @@ class _StatStrip(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         rect = QRectF(0.5, 0.5, self.width() - 1.0, self.height() - 1.0)
-        p.setPen(QPen(QColor(BENTO_EDGE), 1.0))
-        p.setBrush(QColor(BENTO_SNOW))
-        p.drawRoundedRect(rect, 12, 12)
+        # 轻量玻璃格：5% 白填充、白 15% 描边、顶高光 / 底暗缘
+        p.setPen(QPen(rgba(GLASS_WHITE, 38), 1.0))
+        p.setBrush(rgba(GLASS_WHITE, 13))
+        p.drawRoundedRect(rect, 16, 16)
+        inset = rect.adjusted(1.5, 1.5, -1.5, -1.5)
+        p.setPen(QPen(rgba(GLASS_WHITE, 46), 1.0))
+        p.drawLine(
+            QPointF(inset.left() + 8, inset.top()),
+            QPointF(inset.right() - 8, inset.top()),
+        )
+        p.setPen(QPen(rgba(NIGHT_DEEP, 90), 1.0))
+        p.drawLine(
+            QPointF(inset.left() + 8, inset.bottom()),
+            QPointF(inset.right() - 8, inset.bottom()),
+        )
         p.end()
 
 
@@ -209,6 +222,9 @@ class HistoryWindow(QDialog):
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
+        # 列表内容再长也只在滚动区内扩展，不能把底部按钮挤出可视区域。
+        scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        scroll.setMinimumHeight(120)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.viewport().setAutoFillBackground(False)
         scroll.setStyleSheet(
@@ -226,6 +242,8 @@ class HistoryWindow(QDialog):
         body.addWidget(self._cards_lay)
 
         footer = QWidget()
+        footer.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        footer.setFixedHeight(56)
         foot_lay = QHBoxLayout(footer)
         foot_lay.setContentsMargins(0, 0, 0, 0)
         foot_lay.addStretch(1)
@@ -236,6 +254,8 @@ class HistoryWindow(QDialog):
         foot_lay.addWidget(close)
         foot_lay.addStretch(1)
         root.addWidget(footer)
+        root._layout.setStretch(1, 1)  # 标题栏 / 滚动区 / 底栏中的滚动区独占伸缩
+        root._layout.setStretch(2, 0)
 
     def _placements_for(self, cols: int) -> list[tuple[QWidget, int, int, int, int]]:
         """每种列数都给一套完整 placement，缩放窗口时才能真的重排。"""

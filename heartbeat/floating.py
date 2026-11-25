@@ -10,6 +10,7 @@ from PySide6.QtGui import QColor, QFont, QPainter
 from PySide6.QtWidgets import (
     QApplication,
     QFrame,
+    QGraphicsDropShadowEffect,
     QHBoxLayout,
     QLabel,
     QMenu,
@@ -18,7 +19,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .theme import ACCENT, MUTED, ZONE_COLORS
+from .theme import CHAMPAGNE, MOONLIGHT, NIGHT_DEEP, ZONE_COLORS
 from .widgets import BentoCard, PulseHeart, RaisedButton, blurred_shape
 
 STATE_TEXT = {
@@ -108,7 +109,7 @@ class FloatingWindow(QWidget):
         number_row.setContentsMargins(0, 0, 0, 0)
         number_row.setSpacing(5)
         self._bpm_label = QLabel("--", self._panel)
-        self._bpm_label.setStyleSheet(f"color: {MUTED};")
+        self._bpm_label.setStyleSheet(f"color: {MOONLIGHT};")
         f = QFont("Bahnschrift", 27)
         f.setWeight(QFont.Weight.DemiBold)
         self._bpm_label.setFont(f)
@@ -116,19 +117,30 @@ class FloatingWindow(QWidget):
         number_row.addWidget(self._bpm_label, 0, Qt.AlignmentFlag.AlignBottom)
 
         self._unit = QLabel("BPM", self._panel)
-        self._unit.setStyleSheet(f"color: {MUTED}; font-size: 9px; padding-bottom: 6px;")
+        self._unit.setStyleSheet(f"color: {MOONLIGHT}; font-size: 9px; padding-bottom: 6px;")
         number_row.addWidget(self._unit, 0, Qt.AlignmentFlag.AlignBottom)
         number_row.addStretch(1)
         col.addLayout(number_row)
 
         self._meta = QLabel("未连接", self._panel)
-        self._meta.setStyleSheet("color: #9aa8bb; font-size: 10px;")
+        self._meta.setStyleSheet(f"color: {MOONLIGHT}; font-size: 10px;")
         col.addWidget(self._meta)
 
         self._device_label = QLabel("打开主界面选择手环", self._panel)
-        self._device_label.setStyleSheet("color: #5f6d80; font-size: 9px;")
+        self._device_label.setStyleSheet(f"color: {MOONLIGHT}; font-size: 9px;")
         self._device_label.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
         col.addWidget(self._device_label)
+
+        # 游戏透明模式没有底板，用极轻的文字投影保证亮色数字在任何画面上可读。
+        for widget in (
+            self._heart, self._bpm_label, self._unit, self._meta, self._device_label
+        ):
+            shadow = QGraphicsDropShadowEffect(widget)
+            shadow.setColor(QColor(0, 0, 0, 190))
+            shadow.setBlurRadius(8)
+            shadow.setOffset(0, 1)
+            shadow.setEnabled(False)
+            widget.setGraphicsEffect(shadow)
 
         self._close = RaisedButton("×", self)
         self._close.setFixedSize(20, 20)
@@ -266,6 +278,12 @@ class FloatingWindow(QWidget):
         )
         self._game_transparent = transparent
         self._panel.set_transparent(transparent)
+        for widget in (
+            self._heart, self._bpm_label, self._unit, self._meta, self._device_label
+        ):
+            effect = widget.graphicsEffect()
+            if isinstance(effect, QGraphicsDropShadowEffect):
+                effect.setEnabled(transparent)
         self._unit.setStyleSheet(
             f"color: {self._muted_color()}; font-size: 9px; padding-bottom: 6px;"
         )
@@ -273,10 +291,11 @@ class FloatingWindow(QWidget):
         self.update()
 
     def _number_color(self) -> str:
-        return TEXT_ON_GAME if self._game_transparent else ACCENT
+        # 游戏透明模式用亮白压在任意画面上；平时关键数字用香槟金
+        return TEXT_ON_GAME if self._game_transparent else CHAMPAGNE
 
     def _muted_color(self) -> str:
-        return TEXT_ON_GAME_MUTED if self._game_transparent else MUTED
+        return TEXT_ON_GAME_MUTED if self._game_transparent else MOONLIGHT
 
     def set_game_info(self, game_name: str = "", bpm: int | None = None,
                       low: int | None = None, high: int | None = None) -> None:
@@ -346,7 +365,7 @@ class FloatingWindow(QWidget):
         )
         meta_color = (
             TEXT_ON_GAME_MUTED if self._game_transparent
-            else ZONE_COLORS.get(zone, MUTED)
+            else ZONE_COLORS.get(zone, MOONLIGHT)
         )
         self._meta.setStyleSheet(f"color: {meta_color}; font-size: 10px;")
 
@@ -356,7 +375,7 @@ class FloatingWindow(QWidget):
             if len(game_text) > 24:
                 game_text = game_text[:23] + "…"
             self._device_label.setText(game_text)
-            game_color = "#c4b5fd" if self._game_transparent else "#6d5dfc"
+            game_color = TEXT_ON_GAME_MUTED if self._game_transparent else MOONLIGHT
             self._device_label.setStyleSheet(f"color: {game_color}; font-size: 9px;")
         else:
             name = self._device or "打开主界面选择手环"
@@ -366,7 +385,7 @@ class FloatingWindow(QWidget):
                 name = name[:21] + "…"
             self._device_label.setText(name)
             name_color = (
-                TEXT_ON_GAME_MUTED if self._game_transparent else "#5f6d80"
+                TEXT_ON_GAME_MUTED if self._game_transparent else MOONLIGHT
             )
             self._device_label.setStyleSheet(f"color: {name_color}; font-size: 9px;")
 
@@ -375,12 +394,12 @@ class FloatingWindow(QWidget):
         if self._game_transparent:
             # 隐藏背景模式连外阴影一起去掉，真正"悬浮"在游戏画面上
             return
-        # 便当盒卡片投影：0 2px 10px rgba(0,0,0,0.02)，几乎看不见
+        # 玻璃面板外阴影：深墨 16px / 40px，让悬浮窗从桌面浮起
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         pm, pad = blurred_shape(
             self.width() - 20, self.height() - 20, 24,
-            0, 3, 12, "#000000", 10,
+            0, 16, 40, NIGHT_DEEP, 150,
         )
         p.drawPixmap(QPointF(10 - pad, 10 - pad), pm)
         p.end()

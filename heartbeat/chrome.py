@@ -7,7 +7,14 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Property, QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QPainter, QPen
+from PySide6.QtGui import (
+    QBrush,
+    QColor,
+    QPainter,
+    QPainterPath,
+    QPen,
+    QRadialGradient,
+)
 from PySide6.QtWidgets import (
     QAbstractButton,
     QDialog,
@@ -19,7 +26,17 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .theme import BENTO_CARD, BENTO_EDGE, BENTO_SNOW, BLURPLE, CORAL, INK, MUTED
+from .theme import (
+    CHAMPAGNE,
+    CORAL,
+    GLASS_WHITE,
+    MOONLIGHT,
+    MOON_STEEL,
+    MUTED,
+    NIGHT,
+    NIGHT_DEEP,
+    NIGHT_STEEL,
+)
 from .widgets import (
     BrandMark,
     HoverAnimator,
@@ -29,6 +46,7 @@ from .widgets import (
     draw_raised,
     draw_recessed,
     mix_color,
+    rgba,
 )
 
 # 窗口四周留给柔和外阴影的透明边距
@@ -45,7 +63,7 @@ _TOOLTIPS = {
 
 
 class TitleButton(QAbstractButton):
-    """圆形凸起标题栏按钮：最小化 / 最大化 / 还原 / 关闭。"""
+    """圆形玻璃标题栏按钮：最小化 / 最大化 / 还原 / 关闭。"""
 
     hover = Property(float, HoverAnimator._get, HoverAnimator._set)
 
@@ -98,11 +116,11 @@ class TitleButton(QAbstractButton):
         # 套一个方向方框的视觉噪声。键盘仍可 Tab 聚焦并回车触发。
 
         if self._kind == "close":
-            tone = mix_color(INK, CORAL, hv)
+            tone = mix_color(CORAL, "#fca5a5", hv)
         else:
-            tone = mix_color(INK, BLURPLE, hv)
+            tone = mix_color(MOONLIGHT, CHAMPAGNE, hv)
         if not self.isEnabled():
-            tone = QColor(MUTED)
+            tone = QColor(MOON_STEEL)
         pen = QPen(tone, 1.6)
         pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
@@ -302,9 +320,10 @@ class RootPanel(QWidget):
 
 
 class BentoRootPanel(RootPanel):
-    """便当盒窗口外壳：Snow 画布 + 24px 圆角 + 极浅描边和一层软投影。
+    """玻璃窗口外壳：夜景底 + 三枚大半径柔光斑 + 24px 圆角玻璃边界。
 
     继承 RootPanel 以保留标题栏拖拽与四边缩放能力，只替换表面绘制。
+    光斑固定在背景层，是玻璃能被"读出折射"的前提。
     """
 
     def paintEvent(self, event) -> None:  # noqa: N802
@@ -316,19 +335,59 @@ class BentoRootPanel(RootPanel):
             return
         m = FRAME_MARGIN
         rect = QRectF(m, m, max(1.0, w - m * 2), max(1.0, h - m * 2))
+        radius = 24.0
+
+        # 外层深阴影
         shadow, pad = blurred_shape(
-            int(rect.width()), int(rect.height()), 24,
-            0, 8, 26, "#000000", 22, hollow=True,
+            int(rect.width()), int(rect.height()), int(radius),
+            0, 16, 40, NIGHT_DEEP, 150, hollow=True,
         )
         p.drawPixmap(QPointF(rect.x() - pad, rect.y() - pad), shadow)
-        p.setPen(QPen(QColor(BENTO_EDGE), 1.0))
-        p.setBrush(QColor(BENTO_SNOW))
-        p.drawRoundedRect(rect, 24, 24)
+
+        # 夜景底 + 三枚大半径柔光斑：玻璃必须有东西可模糊
+        p.save()
+        clip = QPainterPath()
+        clip.addRoundedRect(rect, radius, radius)
+        p.setClipPath(clip)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(NIGHT))
+        p.drawRect(rect)
+
+        base_r = max(rect.width(), rect.height())
+        for cx, cy, scale, color, alpha in (
+            (rect.right() * 0.92, rect.top() + rect.height() * 0.06, 0.85, MOON_STEEL, 96),
+            (rect.left() + rect.width() * 0.04, rect.bottom() - rect.height() * 0.04, 0.72, CHAMPAGNE, 60),
+            (rect.center().x(), rect.bottom() + rect.height() * 0.12, 0.60, MOONLIGHT, 52),
+        ):
+            grad = QRadialGradient(QPointF(cx, cy), base_r * scale)
+            grad.setColorAt(0.0, rgba(color, alpha))
+            grad.setColorAt(1.0, rgba(color, 0))
+            p.setBrush(QBrush(grad))
+            p.drawRect(rect)
+        p.restore()
+
+        # 玻璃边界：1px 白 15% + 顶边白高光 + 底边暗缘
+        p.setPen(QPen(rgba(GLASS_WHITE, 48), 1.0))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawRoundedRect(rect.adjusted(0.5, 0.5, -0.5, -0.5), radius, radius)
+        inset = rect.adjusted(2, 2, -2, -2)
+        ex = radius * 0.5
+        if inset.width() > ex * 2:
+            p.setPen(QPen(rgba(GLASS_WHITE, 56), 1.0))
+            p.drawLine(
+                QPointF(inset.left() + ex, inset.top()),
+                QPointF(inset.right() - ex, inset.top()),
+            )
+            p.setPen(QPen(rgba(NIGHT_DEEP, 110), 1.0))
+            p.drawLine(
+                QPointF(inset.left() + ex, inset.bottom()),
+                QPointF(inset.right() - ex, inset.bottom()),
+            )
         p.end()
 
 
 class CloseCard(QFrame):
-    """便当盒白卡：24px 圆角、1px 极浅描边、一层几乎看不见的投影。"""
+    """玻璃弹窗面板：夜钢半透底 + 8% 白填充 + 三层光。"""
 
     def paintEvent(self, event) -> None:  # noqa: N802
         p = QPainter(self)
@@ -339,12 +398,40 @@ class CloseCard(QFrame):
             return
         rect = QRectF(0.5, 0.5, w - 1.0, h - 1.0)
         shadow, pad = blurred_shape(
-            w - 2, h - 2, 24, 0, 6, 22, "#000000", 20, hollow=True
+            w - 2, h - 2, 24, 0, 16, 40, NIGHT_DEEP, 170, hollow=True
         )
         p.drawPixmap(QPointF(rect.x() - pad, rect.y() - pad), shadow)
-        p.setPen(QPen(QColor(BENTO_EDGE), 1.0))
-        p.setBrush(QColor(BENTO_CARD))
+
+        clip = QPainterPath()
+        clip.addRoundedRect(rect, 24, 24)
+        p.save()
+        p.setClipPath(clip)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(rgba(NIGHT_STEEL, 225))
+        p.drawRect(rect)
+        glow = QRadialGradient(QPointF(rect.right(), rect.top()), max(w, h) * 0.9)
+        glow.setColorAt(0.0, rgba(CHAMPAGNE, 44))
+        glow.setColorAt(1.0, rgba(CHAMPAGNE, 0))
+        p.setBrush(QBrush(glow))
+        p.drawRect(rect)
+        p.setBrush(rgba(GLASS_WHITE, 20))
+        p.drawRect(rect)
+        p.restore()
+
+        p.setPen(QPen(rgba(GLASS_WHITE, 48), 1.0))
+        p.setBrush(Qt.BrushStyle.NoBrush)
         p.drawRoundedRect(rect, 24, 24)
+        inset = rect.adjusted(2, 2, -2, -2)
+        p.setPen(QPen(rgba(GLASS_WHITE, 56), 1.0))
+        p.drawLine(
+            QPointF(inset.left() + 12, inset.top()),
+            QPointF(inset.right() - 12, inset.top()),
+        )
+        p.setPen(QPen(rgba(NIGHT_DEEP, 110), 1.0))
+        p.drawLine(
+            QPointF(inset.left() + 12, inset.bottom()),
+            QPointF(inset.right() - 12, inset.bottom()),
+        )
         p.end()
 
 
