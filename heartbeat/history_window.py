@@ -1,8 +1,8 @@
-"""历史记录窗口：逐条展示每次连接的时长与心率统计，并绘制本次连接的心率曲线。
+"""历史记录窗口：便当盒网格中逐条展示每次连接的心率数据。
 
-无边框新拟物外壳复用 chrome.RootPanel / TitleBar，滚动区域里每条会话是一张
-SoftCard：设备名、连接时段、持续时长、最低/最高/平均心率，以及一段 Sparkline
-折线图（历史模式，按采样顺序铺满绘图区，不受实时 60 秒窗口限制）。
+每张会话是一张 BentoCard：设备 / 游戏名、连接时段与时长、最低 / 最高 /
+平均心率，以及按采样顺序铺满的历史折线图。最新一条跨整行作为大格，
+其余成对并排，落单的一条再跨整行——尺寸本身就是层级，不需要用颜色区分。
 """
 
 from __future__ import annotations
@@ -10,19 +10,19 @@ from __future__ import annotations
 import time
 
 from PySide6.QtCore import QRectF, Qt, Signal
-from PySide6.QtGui import QPainter, QPixmap
+from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (
     QDialog,
     QHBoxLayout,
     QLabel,
     QScrollArea,
-    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
 
-from .chrome import BentoRootPanel, RootPanel, TitleBar
-from .widgets import RaisedButton, SoftCard, Sparkline, draw_recessed
+from .chrome import BentoRootPanel, TitleBar
+from .theme import BENTO_BORDER, BENTO_SNOW
+from .widgets import BentoCard, BentoGrid, RaisedButton, Sparkline
 
 
 def _ts_parts(ts: float) -> tuple[str, str]:
@@ -54,13 +54,13 @@ def _fmt_duration(start: float, end: float) -> str:
 
 
 class _StatStrip(QWidget):
-    """凹陷的统计条：最低 / 最高 / 平均三列。"""
+    """浅色统计条：最低 / 最高 / 平均三列，便当盒白卡里的雪色小格。"""
 
     def __init__(self, low, high, avg, parent: QWidget | None = None):
         super().__init__(parent)
-        self.setFixedHeight(58)
+        self.setFixedHeight(60)
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(8, 6, 8, 6)
+        lay.setContentsMargins(10, 6, 10, 6)
         lay.setSpacing(4)
         for label, value in (("最低", low), ("最高", high), ("平均", avg)):
             col = QVBoxLayout()
@@ -79,26 +79,24 @@ class _StatStrip(QWidget):
     def paintEvent(self, event) -> None:  # noqa: N802
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        draw_recessed(
-            p,
-            QRectF(0.5, 0.5, self.width() - 1.0, self.height() - 1.0),
-            14.0,
-            depth=5,
-        )
+        rect = QRectF(0.5, 0.5, self.width() - 1.0, self.height() - 1.0)
+        p.setPen(QPen(QColor(BENTO_BORDER), 1.0))
+        p.setBrush(QColor(BENTO_SNOW))
+        p.drawRoundedRect(rect, 12, 12)
         p.end()
 
 
-class SessionCard(SoftCard):
-    """单次连接的记录卡片。"""
+class SessionCard(BentoCard):
+    """单次连接的记录卡片（便当盒白卡）。"""
 
     deleteRequested = Signal(str)
 
     def __init__(self, record: dict, parent: QWidget | None = None):
-        super().__init__(parent, object_name="SoftCard", radius=20.0)
+        super().__init__(parent, object_name="BentoCard", radius=24.0)
         self._key = session_key(record)
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(18, 14, 18, 14)
-        lay.setSpacing(7)
+        lay.setContentsMargins(24, 20, 24, 20)
+        lay.setSpacing(10)
 
         start = record.get("start") or 0
         end = record.get("end") or start
@@ -132,7 +130,7 @@ class SessionCard(SoftCard):
 
         delete = RaisedButton("删除", self)
         delete.setProperty("danger", True)
-        delete.setFixedSize(52, 28)
+        delete.setFixedSize(58, 30)
         delete.setCursor(Qt.CursorShape.PointingHandCursor)
         delete.setToolTip("删除这条历史记录")
         delete.clicked.connect(lambda: self.deleteRequested.emit(self._key))
@@ -169,14 +167,14 @@ class SessionCard(SoftCard):
             lay.addWidget(spark)
         else:
             placeholder = QLabel("该记录未保存心率曲线（旧版本数据）")
-            placeholder.setObjectName("Sub")
+            placeholder.setObjectName("Empty")
             placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
             placeholder.setFixedHeight(72)
             lay.addWidget(placeholder)
 
 
 class HistoryWindow(QDialog):
-    """历史记录窗口：显示每次连接的汇总与心率曲线。"""
+    """历史记录窗口：响应式便当盒网格，显示每次连接的汇总与心率曲线。"""
 
     deleteRequested = Signal(str)
 
@@ -185,9 +183,10 @@ class HistoryWindow(QDialog):
         self.setWindowTitle("历史记录")
         self.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        self.resize(560, 760)
-        self.setMinimumSize(440, 420)
+        self.resize(760, 800)
+        self.setMinimumSize(520, 420)
         self._sessions: list[dict] = []
+        self._cards: list[QWidget] = []
         self._build_ui()
         self.set_sessions(sessions)
 
@@ -196,14 +195,14 @@ class HistoryWindow(QDialog):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.addWidget(BentoRootPanel(self))
         root = self.layout().itemAt(0).widget()
-        assert isinstance(root, RootPanel)
+        assert isinstance(root, BentoRootPanel)
 
         bar = TitleBar("历史记录", "每次连接的监测数据")
         bar._min_button.hide()
         bar._max_button.hide()
         bar.closeClicked.connect(self.hide)
         self._count = QLabel("0 次连接")
-        self._count.setObjectName("Pill")
+        self._count.setObjectName("Badge")
         bar.set_trailing(self._count)
         self._titlebar = bar
         root.addWidget(bar)
@@ -219,51 +218,92 @@ class HistoryWindow(QDialog):
 
         container = QWidget()
         scroll.setWidget(container)
-        self._cards_lay = QVBoxLayout(container)
-        self._cards_lay.setContentsMargins(14, 10, 14, 4)
-        self._cards_lay.setSpacing(14)
+        body = QVBoxLayout(container)
+        body.setContentsMargins(16, 8, 16, 10)
+        body.setSpacing(16)
+        # 历史窗口默认 2 栏，最大化后可到 4 栏；间隙与其他窗口统一 16px
+        self._cards_lay = BentoGrid(body.parent(), gap=16, wide=1100, medium=520)
+        body.addWidget(self._cards_lay)
 
         footer = QWidget()
         foot_lay = QHBoxLayout(footer)
         foot_lay.setContentsMargins(0, 0, 0, 0)
         foot_lay.addStretch(1)
         close = RaisedButton("关闭")
+        close.setProperty("action", True)
         close.setFixedWidth(120)
         close.clicked.connect(self.hide)
         foot_lay.addWidget(close)
         foot_lay.addStretch(1)
         root.addWidget(footer)
 
+    def _placements_for(self, cols: int) -> list[tuple[QWidget, int, int, int, int]]:
+        """每种列数都给一套完整 placement，缩放窗口时才能真的重排。"""
+        total = len(self._cards)
+        if not total:
+            return []
+        per_row = max(1, cols // 2)
+        placements: list[tuple[QWidget, int, int, int, int]] = []
+        # 最新一条跨整行作大格，尺寸就是层级
+        placements.append((self._cards[0], 0, 0, 2, cols))
+        row, slot = 2, 0
+        for index in range(1, total):
+            if cols == 1:
+                placements.append((self._cards[index], row, 0, 2, 1))
+                row += 2
+                continue
+            if slot >= 2:
+                slot = 0
+                row += 2
+            if slot == 1 and index == total - 1:
+                # 落单卡片跨整行，避免一行只剩半张卡
+                placements.append((self._cards[index], row, 0, 2, cols))
+            else:
+                placements.append(
+                    (self._cards[index], row, slot * per_row, 2, per_row)
+                )
+            slot += 1
+        return placements
+
+    def _relayout(self) -> None:
+        self._cards_lay.set_placements(
+            {cols: self._placements_for(cols) for cols in (4, 2, 1)}
+        )
+        self._grid_cols = self._cards_lay.columns_for()
+
     def set_sessions(self, sessions: list[dict] | None) -> None:
         """用最新的会话列表刷新窗口（最新的排在最前）。"""
+        for card in self._cards:
+            card.setParent(None)
+            card.deleteLater()
+        self._cards = []
         self._sessions = [dict(r) for r in (sessions or [])]
-        while self._cards_lay.count():
-            item = self._cards_lay.takeAt(0)
-            widget = item.widget()
-            if widget is not None:
-                widget.setParent(None)
-                widget.deleteLater()
-
         self._count.setText(f"{len(self._sessions)} 次连接")
-        if not self._sessions:
-            empty = QLabel("还没有历史记录\n连接手环并开始监测后，每次连接都会显示在这里")
-            empty.setObjectName("Sub")
-            empty.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
-            empty.setWordWrap(True)
-            empty.setContentsMargins(0, 48, 0, 0)
-            self._cards_lay.addWidget(empty, 1)
-            return
 
-        for record in reversed(self._sessions):
-            card = SessionCard(record)
-            card.setSizePolicy(
-                card.sizePolicy().horizontalPolicy(),
-                QSizePolicy.Policy.Fixed,
-            )
-            card.deleteRequested.connect(self.deleteRequested.emit)
-            self._cards_lay.addWidget(card)
-        # 剩余空间交给末尾弹簧，避免单条卡片被拉伸出大片空白
-        self._cards_lay.addStretch(1)
+        if not self._sessions:
+            empty = BentoCard()
+            label = QLabel("还没有历史记录\n连接手环并开始监测后，每次连接都会显示在这里")
+            label.setObjectName("Sub")
+            label.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
+            label.setWordWrap(True)
+            lay = QVBoxLayout(empty)
+            lay.setContentsMargins(24, 24, 24, 24)
+            lay.addWidget(label)
+            self._cards = [empty]
+        else:
+            for record in reversed(self._sessions):
+                card = SessionCard(record)
+                card.deleteRequested.connect(self.deleteRequested.emit)
+                self._cards.append(card)
+        self._relayout()
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        if hasattr(self, "_cards_lay") and self._cards_lay.columns_for() != getattr(
+            self, "_grid_cols", None
+        ):
+            self._grid_cols = self._cards_lay.columns_for()
+            self._relayout()
 
     def center_on(self, widget: QWidget | None) -> None:
         reference = widget.frameGeometry() if widget is not None else self.frameGeometry()

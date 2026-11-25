@@ -18,8 +18,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .theme import ACCENT, BASE, MUTED, SHADOW_GREY, ZONE_COLORS
-from .widgets import PulseHeart, RaisedButton, SoftCard, blurred_shape
+from .theme import ACCENT, MUTED, ZONE_COLORS
+from .widgets import BentoCard, PulseHeart, RaisedButton, blurred_shape
 
 STATE_TEXT = {
     "idle": "未连接",
@@ -89,11 +89,11 @@ class FloatingWindow(QWidget):
         root.setContentsMargins(10, 10, 10, 10)
         root.setSpacing(0)
 
-        self._panel = SoftCard(self, object_name="FloatPanel", radius=20.0)
+        self._panel = BentoCard(self, object_name="FloatPanel", radius=24.0)
         root.addWidget(self._panel)
 
         lay = QHBoxLayout(self._panel)
-        lay.setContentsMargins(16, 12, 14, 12)
+        lay.setContentsMargins(20, 14, 20, 14)
         lay.setSpacing(12)
 
         self._heart = PulseHeart(46, self._panel)
@@ -375,14 +375,14 @@ class FloatingWindow(QWidget):
         if self._game_transparent:
             # 隐藏背景模式连外阴影一起去掉，真正"悬浮"在游戏画面上
             return
-        # 与页面同一光源的柔和灰影，避免纯黑阴影破坏材质感
+        # 便当盒卡片投影：0 2px 10px rgba(0,0,0,0.02)，几乎看不见
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         pm, pad = blurred_shape(
-            self.width() - 22, self.height() - 22, 20,
-            4, 7, 12, SHADOW_GREY, 85,
+            self.width() - 20, self.height() - 20, 24,
+            0, 3, 12, "#000000", 10,
         )
-        p.drawPixmap(QPointF(11 - pad, 11 - pad), pm)
+        p.drawPixmap(QPointF(10 - pad, 10 - pad), pm)
         p.end()
 
     def resizeEvent(self, event) -> None:  # noqa: N802

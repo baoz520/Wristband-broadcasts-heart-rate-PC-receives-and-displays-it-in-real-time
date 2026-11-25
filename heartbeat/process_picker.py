@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
 
 from .chrome import BentoRootPanel, TitleBar
 from .game import GENERIC_FOLDERS, _pretty_name, match_game, scan_processes
-from .widgets import RaisedButton
+from .widgets import BentoCard, BentoGrid, RaisedButton
 
 
 def suggest_display(name: str, exe: str) -> str:
@@ -66,8 +66,8 @@ class ProcessPickerDialog(QDialog):
         self.setWindowTitle("选择游戏进程")
         self.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        self.resize(640, 520)
-        self.setMinimumSize(460, 360)
+        self.resize(720, 600)
+        self.setMinimumSize(520, 400)
         self._build_ui()
         self._load_processes()
 
@@ -84,21 +84,26 @@ class ProcessPickerDialog(QDialog):
         bar.closeClicked.connect(self.reject)
         root.addWidget(bar)
 
-        body = QVBoxLayout()
-        body.setContentsMargins(16, 10, 16, 6)
-        body.setSpacing(8)
-        root.addLayout(body)
+        # 三张便当盒卡：搜索 / 进程表 / 显示名，统一 16px 间隙
+        grid = BentoGrid(root, gap=16, wide=1100, medium=560)
+        root._layout.addWidget(grid, 1)
 
+        search_card = BentoCard()
+        sl = QVBoxLayout(search_card)
+        sl.setContentsMargins(24, 18, 24, 18)
+        sl.setSpacing(8)
         tip = QLabel("搜索进程名或安装路径，双击即可添加；添加后立刻被识别为游戏。")
         tip.setObjectName("Sub")
-        body.addWidget(tip)
-
+        sl.addWidget(tip)
         self._search = QLineEdit()
         self._search.setObjectName("RecessedInput")
         self._search.setPlaceholderText("搜索进程，例如 cs2、原神、Game")
         self._search.textChanged.connect(self._filter)
-        body.addWidget(self._search)
+        sl.addWidget(self._search)
 
+        table_card = BentoCard()
+        tl = QVBoxLayout(table_card)
+        tl.setContentsMargins(12, 12, 12, 12)
         self._table = QTableWidget(0, 3)
         self._table.setHorizontalHeaderLabels(["进程", "PID", "安装路径"])
         self._table.verticalHeader().hide()
@@ -108,11 +113,12 @@ class ProcessPickerDialog(QDialog):
         self._table.setAlternatingRowColors(False)
         self._table.setShowGrid(False)
         self._table.setStyleSheet(
-            "QTableWidget { background: transparent; border: none; font-size: 11px; }"
-            "QHeaderView::section { background: transparent; border: none; "
-            "color: #5f6d80; font-size: 10px; padding: 4px; }"
-            "QTableWidget::item { padding: 3px; }"
-            "QTableWidget::item:selected { background: #d8deea; color: #2d3748; }"
+            "QTableWidget { background: transparent; border: none; "
+            "font-family: 'Inter', 'Segoe UI', sans-serif; font-size: 12px; color: #18181b; "
+            "selection-background-color: rgba(59,130,246,0.12); selection-color: #18181b; }"
+            "QHeaderView::section { background: #fafafa; border: none; "
+            "color: #71717a; font-size: 11px; padding: 6px; }"
+            "QTableWidget::item { padding: 4px 6px; border: none; }"
         )
         header = self._table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
@@ -120,28 +126,42 @@ class ProcessPickerDialog(QDialog):
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         self._table.itemSelectionChanged.connect(self._on_selection_changed)
         self._table.itemDoubleClicked.connect(lambda *_: self._accept())
-        body.addWidget(self._table, 1)
+        tl.addWidget(self._table)
 
-        name_row = QHBoxLayout()
-        name_row.setSpacing(8)
+        name_card = BentoCard()
+        nl = QVBoxLayout(name_card)
+        nl.setContentsMargins(24, 18, 24, 18)
+        nl.setSpacing(8)
         name_label = QLabel("显示名称")
         name_label.setObjectName("H2")
-        name_row.addWidget(name_label)
+        nl.addWidget(name_label)
         self._display_edit = QLineEdit()
         self._display_edit.setObjectName("RecessedInput")
         self._display_edit.setPlaceholderText("游戏中显示的名字，可修改")
-        name_row.addWidget(self._display_edit, 1)
-        body.addLayout(name_row)
+        nl.addWidget(self._display_edit)
+
+        placements = [
+            (search_card, 0, 0, 1, 2),
+            (table_card, 1, 0, 2, 2),
+            (name_card, 3, 0, 1, 2),
+        ]
+        wide_placements = [
+            (search_card, 0, 0, 1, 4),
+            (table_card, 1, 0, 3, 4),
+            (name_card, 4, 0, 1, 4),
+        ]
+        grid.set_placements({4: wide_placements, 2: placements, 1: placements})
 
         footer = QHBoxLayout()
         footer.setContentsMargins(16, 4, 16, 14)
-        footer.setSpacing(10)
+        footer.setSpacing(12)
         footer.addStretch(1)
         cancel = RaisedButton("取消")
         cancel.setFixedWidth(96)
         cancel.clicked.connect(self.reject)
         footer.addWidget(cancel)
         ok = RaisedButton("添加为游戏")
+        ok.setProperty("action", True)
         ok.setFixedWidth(140)
         ok.clicked.connect(self._accept)
         footer.addWidget(ok)

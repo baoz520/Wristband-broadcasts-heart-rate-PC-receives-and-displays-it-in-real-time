@@ -1,9 +1,9 @@
-"""自绘控件：新拟物阴影基元、开关、心形、走势图、状态胶囊与按钮。
+"""自绘控件：便当盒卡片、网格、按钮、开关、心形、走势图与状态胶囊。
 
-材质规则（与风格规范一致）：
-- 元素与页面共用基底色 #e0e5ec，层级只由阴影承担。
-- 固定左上高光 / 右下暗影：凸起用外阴影对，凹陷用 inset 阴影对。
-- 阴影通过真实高斯模糊绘制，不使用纯黑，也不使用实色描边。
+材质规则（与便当盒规范一致）：
+- Snow `#fafafa` 画布上浮白卡，层级由卡片尺寸而非颜色承担。
+- 卡片 24px 圆角、1px 极浅描边、几乎不可见的软投影；hover 上浮并放大 1%。
+- 小控件沿用缓存高斯模糊阴影基元，但色值已收敛到浅色便当盒色板。
 """
 
 from __future__ import annotations
@@ -39,9 +39,11 @@ from PySide6.QtWidgets import (
     QFrame,
     QGraphicsBlurEffect,
     QGraphicsScene,
+    QGridLayout,
     QLabel,
     QPushButton,
     QSizePolicy,
+    QVBoxLayout,
     QWidget,
 )
 
@@ -51,6 +53,7 @@ from .theme import (
     BENTO_BORDER,
     BENTO_CARD,
     BENTO_INK,
+    BENTO_SNOW,
     BENTO_SKY,
     BENTO_VIOLET,
     BLURPLE,
@@ -298,7 +301,7 @@ class HoverAnimator:
 
 
 class ToggleSwitch(QAbstractButton):
-    """新拟物软开关：凹陷轨道 + 凸起旋钮，开启填紫罗兰。"""
+    """便当盒开关：浅灰轨道 + 白色旋钮，开启填 Sky。"""
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -750,7 +753,7 @@ class BrandMark(QWidget):
 
 
 class RaisedButton(QPushButton):
-    """新拟物凸起按钮：同色填充、无描边、16px 圆角；hover 阴影平滑收缩；按下翻成凹陷。"""
+    """便当盒按钮：12px 圆角，主操作墨黑填充，危险操作橙红填充，次要白底浅描边。"""
 
     hover = Property(float, HoverAnimator._get, HoverAnimator._set)
 
@@ -789,47 +792,53 @@ class RaisedButton(QPushButton):
         if w <= 0 or h <= 0:
             p.end()
             return
-        r = min(16.0, w / 2.0, h / 2.0)
-        rect = QRectF(0, 0, w, h)
+        # 便当盒按钮统一 12px 圆角，按下轻微收缩（等效 CSS scale .95）
+        r = min(12.0, w / 2.0, h / 2.0)
+        pressed = self._pressed or (self.isDown() and self.isEnabled())
+        rect = QRectF(0.5, 0.5, w - 1.0, h - 1.0)
+        if pressed:
+            rect = rect.adjusted(1.5, 1.5, -1.5, -1.5)
         hv = self.hover if self.isEnabled() else 0.0
-        p.setPen(Qt.PenStyle.NoPen)
 
-        if self._pressed or (self.isDown() and self.isEnabled()):
-            draw_recessed(p, rect, r, depth=4)
-        elif not self.isEnabled():
-            p.setBrush(QColor(BASE))
-            p.drawRoundedRect(rect, r, r)
+        danger = bool(self.property("danger"))
+        accent = bool(self.property("accent"))
+        action = bool(self.property("action"))
+        solid = danger or accent or action
+        if not self.isEnabled():
+            p.setPen(QPen(QColor(BENTO_BORDER), 1.0))
+            p.setBrush(QColor(BENTO_SNOW if solid else BENTO_CARD))
+        elif solid:
+            p.setPen(Qt.PenStyle.NoPen)
+            if danger:
+                fill = mix_color(CORAL, "#ea580c", hv)
+            elif accent:
+                fill = mix_color(BENTO_SKY, "#2563eb", hv)
+            else:
+                fill = mix_color(BENTO_INK, "#3f3f46", hv)
+            p.setBrush(fill)
         else:
-            # hover 时按新拟物规范把模糊减半、位移收紧；静止态也保留淡描边
-            # 与足够强的双阴影，避免按钮"融进"背景而看不出是可点击控件。
-            draw_raised(
-                p, rect, r,
-                distance=7.0 - 3.0 * hv,
-                blur=13.0 - 6.0 * hv,
-                grey_alpha=int(168 + 24 * hv),
-                white_alpha=int(210 + 22 * hv),
-                rim=True,
+            # 次要按钮：白底浅描边 + 一层几乎看不见的软影
+            shadow, spad = blurred_shape(
+                max(1, w - 2), max(1, h - 2), int(r),
+                0, int(2 + 2 * hv), int(6 + 6 * hv), "#000000", int(4 + 10 * hv),
+                hollow=True,
             )
-            # 内侧再补一圈极淡高光，强化凸起材质边缘
-            p.setPen(QPen(rgba(HIGHLIGHT, 150), 1.0))
-            p.setBrush(Qt.BrushStyle.NoBrush)
-            p.drawRoundedRect(rect.adjusted(1.5, 1.5, -1.5, -1.5), max(0.0, r - 1.5), max(0.0, r - 1.5))
+            p.drawPixmap(QPointF(rect.x() - spad + 1, rect.y() - spad + 1), shadow)
+            p.setPen(QPen(QColor(BENTO_BORDER), 1.0))
+            p.setBrush(QColor(BENTO_SNOW if hv > 0.5 else BENTO_CARD))
+        p.drawRoundedRect(rect, r, r)
 
         if self.hasFocus() and self.focusPolicy() != Qt.FocusPolicy.NoFocus:
-            p.setPen(QPen(QColor(BLURPLE), 2))
+            p.setPen(QPen(QColor(BENTO_SKY), 2))
             p.setBrush(Qt.BrushStyle.NoBrush)
             p.drawRoundedRect(rect.adjusted(2, 2, -2, -2), max(0.0, r - 2), max(0.0, r - 2))
 
-        danger = bool(self.property("danger"))
-        # 主操作按钮用紫罗兰强调，危险操作用珊瑚红，其余深灰；hover 时再加深
-        if danger:
-            tone = mix_color(CORAL, CORAL, hv)
-        elif self.property("accent"):
-            tone = mix_color(BLURPLE, BLURPLE, hv)
-        else:
-            tone = mix_color(INK, INK, hv)
         if not self.isEnabled():
-            tone = QColor("#9aa3b5")
+            tone = QColor("#a1a1aa")
+        elif solid:
+            tone = QColor("#ffffff")
+        else:
+            tone = QColor(BENTO_INK)
         f = QFont(self.font())
         f.setPointSize(13)
         f.setWeight(QFont.Weight.Medium)
@@ -840,7 +849,7 @@ class RaisedButton(QPushButton):
 
 
 class SoftCheckBox(QAbstractButton):
-    """新拟物勾选框：未选为凹陷空槽，选中为凹陷紫点 + 勾。"""
+    """便当盒勾选框：浅灰圆角槽 + Sky 勾，键盘焦点可见。"""
 
     hover = Property(float, HoverAnimator._get, HoverAnimator._set)
 
@@ -902,7 +911,7 @@ class SoftCheckBox(QAbstractButton):
 
 
 class SoftCard(QFrame):
-    """新拟物软卡片：与背景同色、无实色边框、凸起双阴影 + 淡轮廓、24px 圆角。"""
+    """软卡片基类：24px 圆角、柔和投影与 hover 属性，供 BentoCard 复用。"""
 
     hover = Property(float, HoverAnimator._get, HoverAnimator._set)
 
@@ -973,7 +982,7 @@ class SoftCard(QFrame):
 class BentoCard(SoftCard):
     """便当盒网格中的卡片：白底 / 墨黑渐变锚点、24px 圆角、极浅描边。
 
-    与普通 SoftCard 的区别：不使用同色新拟物阴影，而是白卡浮在 Snow 画布上；
+    与基类 SoftCard 的区别：不使用同色材质阴影，而是白卡浮在 Snow 画布上；
     hover 300ms 内上浮 4px、放大 1%、阴影由 2% 扩到 8%。尺寸本身承担层级，
     颜色只用于唯一一张锚点卡。
     """
@@ -1038,3 +1047,96 @@ class BentoCard(SoftCard):
             p.setPen(QPen(QColor(BENTO_BORDER), 1.0))
         p.drawRoundedRect(rect, r, r)
         p.end()
+
+
+class BentoGrid(QWidget):
+    """响应式便当盒网格：桌面 4 栏 / 平板 2 栏 / 窄屏 1 栏。
+
+    用法：::
+
+        grid = BentoGrid(parent)
+        grid.set_placements({
+            4: [(card_a, 0, 0, 2, 2), (card_b, 0, 2, 1, 1)],
+            2: [(card_a, 0, 0, 2, 2), (card_b, 2, 0, 1, 1)],
+            1: [(card_a, 0, 0, 2, 1), (card_b, 2, 0, 1, 1)],
+        })
+
+    断点切换时重建布局（而不是只改 stretch），避免旧空列继续占宽度。
+    间隙全页统一一个值，默认 16px。
+    """
+
+    WIDE_BREAKPOINT = 900
+    MEDIUM_BREAKPOINT = 620
+
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        gap: int = 16,
+        wide: int | None = None,
+        medium: int | None = None,
+    ):
+        super().__init__(parent)
+        self._gap = int(gap)
+        self._wide = int(wide) if wide is not None else self.WIDE_BREAKPOINT
+        self._medium = int(medium) if medium is not None else self.MEDIUM_BREAKPOINT
+        self._placements: dict[int, list[tuple[QWidget, int, int, int, int]]] = {}
+        self._cols = 0
+        self._outer = QVBoxLayout(self)
+        self._outer.setContentsMargins(0, 0, 0, 0)
+        self._outer.setSpacing(0)
+        self._grid = QGridLayout()
+        self._grid.setContentsMargins(0, 0, 0, 0)
+        self._grid.setHorizontalSpacing(self._gap)
+        self._grid.setVerticalSpacing(self._gap)
+        self._outer.addLayout(self._grid)
+
+    def columns_for(self, width: int | None = None) -> int:
+        w = self.width() if width is None else int(width)
+        if w >= self._wide:
+            return 4
+        if w >= self._medium:
+            return 2
+        return 1
+
+    def set_placements(
+        self, placements: dict[int, list[tuple[QWidget, int, int, int, int]]]
+    ) -> None:
+        self._placements = dict(placements)
+        self._apply()
+
+    def count(self) -> int:
+        """当前已放置的格子数，便于测试与空状态判断。"""
+        return self._grid.count()
+
+    def _apply(self) -> None:
+        cols = self.columns_for()
+        items = self._placements.get(cols) or []
+        old = self._grid
+        while old.count():
+            item = old.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.setParent(self)
+
+        grid = QGridLayout()
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(self._gap)
+        grid.setVerticalSpacing(self._gap)
+        last_row = 0
+        for widget, row, col, rowspan, colspan in items:
+            grid.addWidget(widget, row, col, max(1, rowspan), max(1, colspan))
+            last_row = max(last_row, row + max(1, rowspan))
+        for column in range(cols):
+            grid.setColumnStretch(column, 1)
+        grid.setRowStretch(last_row, 1)
+
+        self._outer.removeItem(old)
+        self._outer.insertLayout(0, grid)
+        old.deleteLater()
+        self._grid = grid
+        self._cols = cols
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        if self._placements and self.columns_for() != self._cols:
+            self._apply()

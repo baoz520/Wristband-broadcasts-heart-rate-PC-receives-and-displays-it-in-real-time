@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .theme import BENTO_BORDER, BENTO_SNOW, BLURPLE, CORAL, INK, MUTED
+from .theme import BENTO_BORDER, BENTO_CARD, BENTO_SNOW, BLURPLE, CORAL, INK, MUTED
 from .widgets import (
     BrandMark,
     HoverAnimator,
@@ -224,7 +224,7 @@ class TitleBar(QFrame):
 
 
 class RootPanel(QWidget):
-    """整窗新拟物卡片：自绘柔和外阴影，边缘可拖动缩放。"""
+    """整窗卡片外壳：自绘柔和外阴影，边缘可拖动缩放（兼容旧窗口）。"""
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -328,13 +328,23 @@ class BentoRootPanel(RootPanel):
 
 
 class CloseCard(QFrame):
-    """对话框的凸起卡片表面。"""
+    """便当盒白卡：24px 圆角、1px 极浅描边、一层几乎看不见的投影。"""
 
     def paintEvent(self, event) -> None:  # noqa: N802
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        rect = QRectF(0.5, 0.5, self.width() - 1.0, self.height() - 1.0)
-        draw_raised(p, rect, 24.0)
+        w, h = self.width(), self.height()
+        if w <= 0 or h <= 0:
+            p.end()
+            return
+        rect = QRectF(0.5, 0.5, w - 1.0, h - 1.0)
+        shadow, pad = blurred_shape(
+            w - 2, h - 2, 24, 0, 4, 18, "#000000", 12, hollow=True
+        )
+        p.drawPixmap(QPointF(rect.x() - pad, rect.y() - pad), shadow)
+        p.setPen(QPen(QColor(BENTO_BORDER), 1.0))
+        p.setBrush(QColor(BENTO_CARD))
+        p.drawRoundedRect(rect, 24, 24)
         p.end()
 
 
@@ -380,7 +390,7 @@ class CloseDialog(QDialog):
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(16)
         self._minimize = RaisedButton("最小化")
-        self._minimize.setProperty("accent", True)
+        self._minimize.setProperty("action", True)
         self._quit = RaisedButton("直接关闭")
         self._quit.setProperty("danger", True)
         self._minimize.setFixedHeight(42)

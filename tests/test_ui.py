@@ -324,6 +324,33 @@ def main() -> None:
     finally:
         picker_module.scan_processes = original_scan
 
+    # 16. 全窗口便当盒风格：卡片组件、统一色板与响应式网格
+    from heartbeat.theme import (
+        BENTO_BORDER,
+        BENTO_CARD,
+        BENTO_INK,
+        BENTO_SKY,
+        BENTO_SNOW,
+    )
+    from heartbeat.widgets import BentoCard, BentoGrid
+
+    assert (BENTO_SNOW, BENTO_CARD, BENTO_INK, BENTO_BORDER, BENTO_SKY) == (
+        "#fafafa", "#ffffff", "#18181b", "#f4f4f5", "#3b82f6"
+    ), "便当盒色板被改动"
+    assert all(isinstance(card, BentoCard) for card in hw._cards), (
+        "历史窗口卡片不是便当盒卡片"
+    )
+    assert isinstance(settings_win._grid, BentoGrid), "设置窗口未使用便当盒网格"
+    assert isinstance(controller.floating._panel, BentoCard), "悬浮窗未换成白卡"
+    assert isinstance(picker._table.parent(), BentoCard), "进程表未放进便当盒白卡"
+    assert any(
+        isinstance(widget, BentoCard)
+        for widget in picker.findChildren(BentoCard)
+    ), "进程选择器缺少便当盒卡片"
+    probe_grid = BentoGrid()
+    assert (probe_grid.columns_for(980), probe_grid.columns_for(720),
+            probe_grid.columns_for(400)) == (4, 2, 1), "网格断点不正确"
+
     controller.quit()
 
     # 关闭测试窗口时不弹模态框（离屏环境下 exec() 行为不稳定）

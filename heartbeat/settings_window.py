@@ -1,7 +1,7 @@
-"""设置窗口：悬浮窗自定义与游戏检测设置。
+"""设置窗口：便当盒网格中的悬浮窗自定义与游戏检测设置。
 
-无边框新拟物对话框，复用 chrome.RootPanel / TitleBar；改动即时通过信号交给
-Controller 应用到悬浮窗与游戏检测器，并持久化到 Settings。
+无边框 Snow 外壳 + 响应式 BentoGrid：外观与游戏检测各占一张高卡，
+自定义进程占一张跨行宽卡。改动即时通过信号交给 Controller，并持久化。
 """
 
 from __future__ import annotations
@@ -21,51 +21,33 @@ from PySide6.QtWidgets import (
 )
 
 from .chrome import BentoRootPanel, TitleBar
-from .widgets import RaisedButton, ToggleSwitch
+from .widgets import BentoCard, BentoGrid, RaisedButton, ToggleSwitch
 
 
 class _Section(QWidget):
-    """一个设置分组：标题 + 卡片内容。"""
+    """设置分组：一张 BentoCard，标题在卡内顶部。"""
 
     def __init__(self, title: str, parent: QWidget | None = None):
         super().__init__(parent)
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(6)
+        outer.setSpacing(0)
+        card = BentoCard(self, object_name="BentoCard")
+        outer.addWidget(card)
+        self.card = card
+
+        self.lay = QVBoxLayout(card)
+        self.lay.setContentsMargins(24, 20, 24, 20)
+        self.lay.setSpacing(8)
         label = QLabel(title)
         label.setObjectName("CardTitle")
-        outer.addWidget(label)
-        self.body = QFrame()
-        self.body.setObjectName("Card")
-        outer.addWidget(self.body)
-        self.lay = QVBoxLayout(self.body)
-        self.lay.setContentsMargins(14, 8, 14, 8)
-        self.lay.setSpacing(0)
+        self.lay.addWidget(label)
+        self.lay.addSpacing(4)
 
     def add_divider(self) -> None:
         line = QFrame()
         line.setObjectName("Divider")
         self.lay.addWidget(line)
-
-
-def _setting_row(title: str, desc: str, widget: QWidget) -> QWidget:
-    row = QWidget()
-    row.setFixedHeight(52)
-    h = QHBoxLayout(row)
-    h.setContentsMargins(0, 4, 0, 4)
-    h.setSpacing(10)
-    col = QVBoxLayout()
-    col.setContentsMargins(0, 0, 0, 0)
-    col.setSpacing(0)
-    name = QLabel(title)
-    name.setObjectName("H2")
-    col.addWidget(name)
-    sub = QLabel(desc)
-    sub.setObjectName("Sub")
-    col.addWidget(sub)
-    h.addLayout(col, 1)
-    h.addWidget(widget, 0, Qt.AlignmentFlag.AlignVCenter)
-    return row
 
 
 class SettingsWindow(QDialog):
@@ -91,8 +73,8 @@ class SettingsWindow(QDialog):
         self.setWindowTitle("设置")
         self.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        self.resize(500, 700)
-        self.setMinimumSize(420, 480)
+        self.resize(760, 780)
+        self.setMinimumSize(520, 520)
         self._build_ui()
         self._load_values()
 
@@ -121,8 +103,10 @@ class SettingsWindow(QDialog):
         container = QWidget()
         scroll.setWidget(container)
         body = QVBoxLayout(container)
-        body.setContentsMargins(14, 10, 14, 10)
+        body.setContentsMargins(16, 8, 16, 10)
         body.setSpacing(16)
+        self._grid = BentoGrid(container, gap=16, wide=1100, medium=560)
+        body.addWidget(self._grid)
 
         # ---------------- 悬浮窗 ----------------
         float_sec = _Section("悬浮窗自定义")
@@ -137,7 +121,6 @@ class SettingsWindow(QDialog):
         float_sec.add_divider()
         sw, self._device_switch = self._switch("显示设备名", "在悬浮窗底部显示设备", True)
         float_sec.lay.addWidget(sw)
-        body.addWidget(float_sec)
 
         # ---------------- 游戏检测 ----------------
         game_sec = _Section("游戏心率检测")
@@ -151,7 +134,6 @@ class SettingsWindow(QDialog):
         game_sec.lay.addWidget(sw)
         game_sec.add_divider()
 
-        # 游戏中悬浮窗样式：隐藏背景 / 整窗隐藏 / 保持原样
         mode_row = QWidget()
         mode_row.setFixedHeight(56)
         mh = QHBoxLayout(mode_row)
@@ -178,40 +160,56 @@ class SettingsWindow(QDialog):
 
         self._poll_slider = self._add_slider_row(game_sec, "检测间隔", "秒，越小越灵敏", 2, 10, 4)
 
-        # 自定义进程名输入
-        custom_row = QWidget()
-        cv = QVBoxLayout(custom_row)
-        cv.setContentsMargins(0, 6, 0, 6)
-        cv.setSpacing(4)
-        tip = QLabel("补充游戏进程名（每行一个，支持 进程名=显示名；Steam 等启动器不算游戏）")
+        # ---------------- 自定义进程（宽卡） ----------------
+        custom_sec = _Section("补充游戏进程")
+        tip = QLabel("每行一个进程，支持 进程名=显示名；Steam、壁纸等平台不算游戏")
         tip.setObjectName("Sub")
-        cv.addWidget(tip)
+        tip.setWordWrap(True)
+        custom_sec.lay.addWidget(tip)
         self._custom_edit = QLineEdit()
         self._custom_edit.setObjectName("RecessedInput")
         self._custom_edit.setPlaceholderText("例如：mygame.exe=我的游戏")
-        cv.addWidget(self._custom_edit)
+        custom_sec.lay.addWidget(self._custom_edit)
 
         pick_row = QHBoxLayout()
-        pick_row.setContentsMargins(0, 2, 0, 0)
-        pick_row.setSpacing(8)
+        pick_row.setContentsMargins(0, 4, 0, 0)
+        pick_row.setSpacing(10)
         self._custom_status = QLabel("")
         self._custom_status.setObjectName("Sub")
         pick_row.addWidget(self._custom_status, 1)
         pick = RaisedButton("从运行进程中添加…")
-        pick.setFixedWidth(156)
+        pick.setProperty("action", True)
+        pick.setFixedWidth(178)
         pick.clicked.connect(self._pick_process)
         pick_row.addWidget(pick, 0, Qt.AlignmentFlag.AlignRight)
-        cv.addLayout(pick_row)
-        game_sec.lay.addWidget(custom_row)
-        body.addWidget(game_sec)
+        custom_sec.lay.addLayout(pick_row)
 
-        body.addStretch(1)
+        self._grid.set_placements(
+            {
+                4: [
+                    (float_sec, 0, 0, 2, 2),
+                    (game_sec, 0, 2, 2, 2),
+                    (custom_sec, 2, 0, 1, 4),
+                ],
+                2: [
+                    (float_sec, 0, 0, 2, 1),
+                    (game_sec, 0, 1, 2, 1),
+                    (custom_sec, 2, 0, 1, 2),
+                ],
+                1: [
+                    (float_sec, 0, 0, 2, 1),
+                    (game_sec, 2, 0, 2, 1),
+                    (custom_sec, 4, 0, 2, 1),
+                ],
+            }
+        )
 
         footer = QWidget()
         foot = QHBoxLayout(footer)
         foot.setContentsMargins(0, 0, 0, 0)
         foot.addStretch(1)
         close = RaisedButton("完成")
+        close.setProperty("action", True)
         close.setFixedWidth(120)
         close.clicked.connect(self.accept_if_needed)
         foot.addWidget(close)

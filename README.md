@@ -4,7 +4,7 @@
 
 ![主界面](screenshots/main.png)
 
-主界面采用便当盒网格：Snow 画布 + 白卡 / 唯一墨黑锚点卡，卡片尺寸分主次，统一 16px 间隙与 24px 圆角，hover 300ms 上浮放大；窗口变窄时自动退化为两栏，顺序不变（[窄屏预览](screenshots/main_narrow.png)）。
+全窗口统一便当盒布局：Snow `#fafafa` 画布 + 白卡 / 唯一墨黑锚点卡，卡片尺寸分主次，统一 16px 间隙与 24px 圆角，hover 300ms 上浮放大；窗口变窄时自动退化为两栏或单栏，顺序不变（[窄屏预览](screenshots/main_narrow.png)）。历史、设置、进程选择器与悬浮窗都采用同一套网格与卡片材质（[历史](screenshots/history.png) · [设置](screenshots/settings.png) · [进程选择](screenshots/process_picker.png)）。
 
 ![悬浮窗](screenshots/floating.png)
 
@@ -22,7 +22,7 @@
 - **游戏中悬浮窗样式**：设置里可选「隐藏背景，仅留数据」（默认，去掉拟物底板和外阴影，只留亮色数字悬在游戏画面上）、「自动隐藏整个悬浮窗」（退出游戏后自动恢复）或「保持原样」。
 - **历史数据开关**：开启后，断连或数据过期时，悬浮窗 / 主界面会回退展示该手环最近一次的历史心率；原始采样按手环 MAC 保存（最近 200 条）。
 - **后台运行**：关闭窗口时可选择「最小化」（缩到托盘，监测和悬浮窗继续工作）或「直接关闭」（退出程序）；勾选「不再提示」后记住本次选择，之后点关闭直接执行。托盘菜单的「关闭时询问」可随时恢复询问。
-- **自绘标题栏**：最小化 / 最大化 / 关闭均为自绘新拟物按钮（无系统原生按钮），支持拖动窗口、双击标题栏最大化、四边拖拽缩放。
+- **自绘标题栏**：最小化 / 最大化 / 关闭均为自绘便当盒风格按钮（无系统原生按钮），支持拖动窗口、双击标题栏最大化、四边拖拽缩放。
 
 ## 运行
 
@@ -78,7 +78,7 @@ heartbeat/settings_window.py 设置窗口（悬浮窗自定义、游戏检测）
 heartbeat/game.py       Windows 游戏进程检测与图标提取
 heartbeat/process_picker.py 运行进程选择器（快捷添加游戏进程）
 heartbeat/floating.py   悬浮窗（含自定义外观与游戏态）
-heartbeat/widgets.py    自绘控件与新拟物阴影基元
+heartbeat/widgets.py    便当盒卡片/响应式网格与自绘控件
 heartbeat/theme.py      配色与样式
 heartbeat/config.py     设置持久化（%APPDATA%\HeartbeatMonitor）
 tools/preview.py        离屏渲染界面截图

@@ -1,40 +1,45 @@
-"""集中管理配色与全局样式（新拟物派 · Neumorphism light）。"""
+"""集中管理配色与全局样式（便当盒布局 · Bento grid light）。
+
+画布 Snow `#fafafa`、卡片 Card White `#ffffff`、主文字 Ink `#18181b`；
+层级只由卡片尺寸与极淡描边承担。旧的新拟物 token 名保留兼容，
+但色值全部收敛到便当盒色板，避免不同窗口出现两套材质。
+"""
 
 from __future__ import annotations
 
 from PySide6.QtGui import QColor, QFont, QPalette
 from PySide6.QtWidgets import QApplication
 
-# ------------------------------------------------------------------ 新拟物派 token
-BASE = "#e0e5ec"            # --color-base：页面与所有元素的共同基底
-SHADOW_GREY = "#b8bcc2"     # --color-shadow-grey：右下阴影色
-HIGHLIGHT = "#ffffff"       # --color-highlight：左上高光色
-BLURPLE = "#3b82f6"         # 便当盒 Sky：主行动与选中态（旧名保留兼容）
-CORAL = "#ff6b6b"           # --color-coral：警示与删除
-MINT = "#4ecdc4"            # --color-mint：成功与数据正向
-INK = "#3d4451"             # --color-text：深色文字只出现在内容层
+# ------------------------------------------------------------------ 便当盒 token
+BENTO_SNOW = "#fafafa"          # --color-snow：页面画布
+BENTO_CARD = "#ffffff"          # --color-card：卡片填充
+BENTO_INK = "#18181b"           # --color-ink：标题 / 主按钮 / 锚点卡
+BENTO_BORDER = "#f4f4f5"        # 极浅描边
+BENTO_SKY = "#3b82f6"           # 主强调与图标底
+BENTO_VIOLET = "#8b5cf6"        # 渐变锚点第二强调
+BENTO_TANGERINE = "#f97316"     # 数据与提醒（全屏最多一处）
 
-ACCENT = BLURPLE            # 心率主色 / 激活态（紫罗兰）
-ACCENT_SOFT = "#93c5fd"     # Sky 的柔和变体（光晕）
-BG = BASE
-CARD = BASE
-CARD_ALT = BASE
-BORDER = SHADOW_GREY
+# 兼容旧模块名的别名：控件表面改成白卡，阴影收敛成极淡冷灰。
+BASE = BENTO_CARD
+SHADOW_GREY = "#e4e4e7"
+HIGHLIGHT = "#ffffff"
+BLURPLE = BENTO_SKY
+CORAL = BENTO_TANGERINE
+MINT = "#34d399"
+INK = BENTO_INK
+
+ACCENT = BLURPLE               # 心率主色 / 激活态
+ACCENT_SOFT = "#93c5fd"        # Sky 的柔和变体（光晕）
+BG = BENTO_SNOW
+CARD = BENTO_CARD
+CARD_ALT = BENTO_SNOW
+BORDER = BENTO_BORDER
 TEXT = INK
-MUTED = "#6f7a90"           # 界面层中灰文字
+MUTED = "#71717a"              # 次级文字
 
 GREEN = "#34d399"
 AMBER = "#fbbf24"
 RED = "#f87171"
-
-# --------------------------------------------------------------- 便当盒 token
-BENTO_SNOW = "#fafafa"          # 页面画布
-BENTO_CARD = "#ffffff"          # 卡片填充
-BENTO_INK = "#18181b"           # 锚点卡 / 主文字
-BENTO_BORDER = "#f4f4f5"        # 极浅描边
-BENTO_SKY = BLURPLE             # 主强调（沿用全局 ACCENT）
-BENTO_VIOLET = "#8b5cf6"        # 渐变第二强调
-BENTO_TANGERINE = "#f97316"     # 数据提醒（全屏最多一处）
 
 ZONE_COLORS = {
     "静息": "#5aa9ff",
@@ -47,25 +52,26 @@ ZONE_COLORS = {
 INTER_FONT = '"Inter", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI", sans-serif'
 
 QSS = f"""
-/* 无边框窗口整体透明；新拟物卡片由自绘控件铺基底并画阴影 */
+/* 无边框窗口整体透明；卡片由 BentoCard 自绘，画布统一 Snow */
 QMainWindow, QDialog, QFrame#CloseCard {{
     background: transparent;
 }}
 QWidget {{
     color: {INK};
+    font-family: {INTER_FONT};
 }}
 QFrame#Hero, QFrame#Card {{
-    background: {BASE};
-    border: none;
+    background: {BENTO_CARD};
+    border: 1px solid {BENTO_BORDER};
     border-radius: 24px;
 }}
 QFrame#DeviceRow {{
-    background: {BENTO_SNOW};
+    background: {BENTO_CARD};
     border: 1px solid {BENTO_BORDER};
     border-radius: 16px;
 }}
 QFrame#Divider {{
-    background: {SHADOW_GREY};
+    background: {BENTO_BORDER};
     border: none;
     max-height: 1px;
     min-height: 1px;
@@ -130,10 +136,10 @@ QLabel#Pill {{
     padding: 4px 12px;
 }}
 QLabel#Badge {{
-    background: {BASE};
-    color: {BLURPLE};
-    border: none;
-    border-radius: 999px;
+    background: {BENTO_SNOW};
+    color: {BENTO_SKY};
+    border: 1px solid {BENTO_BORDER};
+    border-radius: 12px;
     padding: 3px 10px;
     font-size: 12px;
     font-weight: 500;
@@ -143,39 +149,42 @@ QLabel#Battery {{
     font-size: 12px;
     font-weight: 400;
 }}
+/* 便当盒卡片内操作：墨黑填充、白字、12px 圆角、按下轻微缩放由自绘按钮承担 */
 QPushButton {{
-    background: {BASE};
+    background: {BENTO_INK};
     border: none;
-    border-radius: 16px;
-    padding: 6px 16px;
-    color: {INK};
-    font-size: 13px;
+    border-radius: 12px;
+    padding: 8px 18px;
+    color: #ffffff;
+    font-size: 14px;
     font-weight: 500;
 }}
+QPushButton:hover {{
+    background: rgba(24, 24, 27, 0.80);
+}}
 QPushButton:pressed {{
-    background: #d5dbe8;
+    background: {BENTO_INK};
 }}
 QPushButton:disabled {{
-    color: #9aa3b5;
-    background: #d8deea;
+    color: #a1a1aa;
+    background: {BENTO_BORDER};
 }}
 QPushButton#Primary {{
-    background: {BLURPLE};
-    border: none;
-    border-radius: 16px;
-    padding: 6px 16px;
+    background: {BENTO_SKY};
+    border-radius: 12px;
+    padding: 8px 18px;
     color: #ffffff;
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 600;
 }}
 QPushButton#Ghost {{
-    background: {BASE};
-    border: none;
-    border-radius: 16px;
+    background: {BENTO_SNOW};
+    border: 1px solid {BENTO_BORDER};
+    border-radius: 12px;
     color: {INK};
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 500;
-    padding: 4px 11px;
+    padding: 6px 12px;
 }}
 QPushButton#Tiny {{
     background: transparent;
@@ -199,12 +208,12 @@ QScrollBar:vertical {{
     margin: 2px;
 }}
 QScrollBar::handle:vertical {{
-    background: {SHADOW_GREY};
+    background: #d4d4d8;
     border-radius: 3px;
     min-height: 24px;
 }}
 QScrollBar::handle:vertical:hover {{
-    background: #9aa3b5;
+    background: #a1a1aa;
 }}
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
 QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
@@ -221,60 +230,60 @@ QPlainTextEdit#Log {{
     padding: 6px;
 }}
 QLineEdit#RecessedInput {{
-    background: {BASE};
-    border: 2px solid {SHADOW_GREY};
+    background: {BENTO_CARD};
+    border: 1px solid #e4e4e7;
     border-radius: 12px;
-    padding: 6px 10px;
+    padding: 8px 12px;
     color: {INK};
-    font-size: 12px;
-    selection-background-color: {BLURPLE};
+    font-size: 14px;
+    selection-background-color: {BENTO_SKY};
 }}
 QLineEdit#RecessedInput:focus {{
-    border-color: {BLURPLE};
+    border-color: {BENTO_SKY};
 }}
 QComboBox {{
-    background: {BASE};
-    border: 2px solid {SHADOW_GREY};
+    background: {BENTO_CARD};
+    border: 1px solid #e4e4e7;
     border-radius: 12px;
-    padding: 5px 10px;
+    padding: 6px 12px;
     color: {INK};
-    font-size: 11px;
+    font-size: 12px;
 }}
 QComboBox:hover, QComboBox:focus {{
-    border-color: {BLURPLE};
+    border-color: {BENTO_SKY};
 }}
 QComboBox::drop-down {{
     border: none;
     width: 18px;
 }}
 QComboBox QAbstractItemView {{
-    background: {BASE};
-    border: 1px solid {SHADOW_GREY};
-    border-radius: 10px;
+    background: {BENTO_CARD};
+    border: 1px solid {BENTO_BORDER};
+    border-radius: 12px;
     color: {INK};
-    selection-background-color: {BLURPLE};
+    selection-background-color: {BENTO_SKY};
     selection-color: #ffffff;
     padding: 4px;
 }}
 QSlider::groove:horizontal {{
-    background: {SHADOW_GREY};
+    background: #e4e4e7;
     height: 6px;
     border-radius: 3px;
 }}
 QSlider::sub-page:horizontal {{
-    background: {BLURPLE};
+    background: {BENTO_SKY};
     border-radius: 3px;
 }}
 QSlider::handle:horizontal {{
-    background: {BASE};
-    border: 2px solid {SHADOW_GREY};
+    background: {BENTO_CARD};
+    border: 1px solid #d4d4d8;
     width: 16px;
     height: 16px;
     margin: -6px 0;
     border-radius: 8px;
 }}
 QSlider::handle:horizontal:hover {{
-    border-color: {BLURPLE};
+    border-color: {BENTO_SKY};
 }}
 QPlainTextEdit#Log QScrollBar:vertical {{
     width: 4px;
@@ -287,9 +296,9 @@ QListWidget#SessionList::item {{
     padding: 3px 6px;
 }}
 QMenu {{
-    background: {BASE};
-    border: none;
-    border-radius: 14px;
+    background: {BENTO_CARD};
+    border: 1px solid {BENTO_BORDER};
+    border-radius: 12px;
     padding: 6px;
 }}
 QMenu::item {{
@@ -297,51 +306,47 @@ QMenu::item {{
     border-radius: 8px;
 }}
 QMenu::item:selected {{
-    background: rgba(59, 130, 246, 0.14);
-    color: {BLURPLE};
+    background: rgba(59, 130, 246, 0.12);
+    color: {BENTO_SKY};
 }}
 QMenu::separator {{
     height: 1px;
-    background: {SHADOW_GREY};
+    background: {BENTO_BORDER};
     margin: 4px 8px;
 }}
 QToolTip {{
-    background: {BASE};
+    background: {BENTO_CARD};
     color: {INK};
-    border: none;
-    border-radius: 10px;
-    padding: 4px 8px;
+    border: 1px solid {BENTO_BORDER};
+    border-radius: 12px;
+    padding: 6px 10px;
 }}
 """
 
 BUTTON_QSS = f"""
 QPushButton {{
-    background: {BASE};
+    background: {BENTO_INK};
     border: none;
-    border-radius: 16px;
-    padding: 6px 16px;
-    color: {INK};
-    font-size: 13px;
+    border-radius: 12px;
+    padding: 8px 18px;
+    color: #ffffff;
+    font-size: 14px;
     font-weight: 500;
 }}
 QPushButton:hover {{
-    background: #d8deea;
+    background: rgba(24, 24, 27, 0.80);
 }}
 QPushButton:pressed {{
-    background: #d0d7e6;
+    background: {BENTO_INK};
 }}
 QPushButton:disabled {{
-    color: #9aa3b5;
-    background: #d8deea;
+    color: #a1a1aa;
+    background: {BENTO_BORDER};
 }}
 QPushButton#Primary {{
-    background: {BLURPLE};
-    border: none;
-    border-radius: 16px;
-    padding: 6px 16px;
+    background: {BENTO_SKY};
+    border-radius: 12px;
     color: #ffffff;
-    font-size: 13px;
-    font-weight: 600;
 }}
 QPushButton#Tiny {{
     background: transparent;
@@ -350,7 +355,7 @@ QPushButton#Tiny {{
     padding: 2px 4px;
 }}
 QPushButton#Tiny:hover {{
-    color: {BLURPLE};
+    color: {BENTO_SKY};
 }}
 """
 
@@ -362,16 +367,16 @@ def apply_theme(app: QApplication) -> None:
     base_font.setPointSize(10)
     app.setFont(base_font)
     palette = QPalette()
-    palette.setColor(QPalette.ColorRole.Window, QColor(BASE))
+    palette.setColor(QPalette.ColorRole.Window, QColor(BENTO_SNOW))
     palette.setColor(QPalette.ColorRole.WindowText, QColor(INK))
-    palette.setColor(QPalette.ColorRole.Base, QColor(BASE))
-    palette.setColor(QPalette.ColorRole.AlternateBase, QColor(BASE))
+    palette.setColor(QPalette.ColorRole.Base, QColor(BENTO_CARD))
+    palette.setColor(QPalette.ColorRole.AlternateBase, QColor(BENTO_SNOW))
     palette.setColor(QPalette.ColorRole.Text, QColor(INK))
-    palette.setColor(QPalette.ColorRole.Button, QColor(BASE))
+    palette.setColor(QPalette.ColorRole.Button, QColor(BENTO_CARD))
     palette.setColor(QPalette.ColorRole.ButtonText, QColor(INK))
-    palette.setColor(QPalette.ColorRole.Highlight, QColor(BLURPLE))
+    palette.setColor(QPalette.ColorRole.Highlight, QColor(BENTO_SKY))
     palette.setColor(QPalette.ColorRole.HighlightedText, QColor("#ffffff"))
-    palette.setColor(QPalette.ColorRole.ToolTipBase, QColor(BASE))
+    palette.setColor(QPalette.ColorRole.ToolTipBase, QColor(BENTO_CARD))
     palette.setColor(QPalette.ColorRole.ToolTipText, QColor(INK))
     palette.setColor(QPalette.ColorRole.PlaceholderText, QColor(MUTED))
     app.setPalette(palette)
