@@ -10,6 +10,7 @@ from PySide6.QtGui import QCloseEvent, QFont, QFontMetrics
 from PySide6.QtWidgets import (
     QDialog,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QListWidget,
@@ -21,14 +22,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .chrome import CloseDialog, RootPanel, TitleBar
+from .chrome import BentoRootPanel, CloseDialog, TitleBar
 from .ble import DeviceInfo
 from .hr import heart_rate_zone
 from .theme import ACCENT, MUTED, ZONE_COLORS
 from .widgets import (
+    BentoCard,
     PulseHeart,
     RaisedButton,
-    SoftCard,
     Sparkline,
     SignalBars,
     StatusPill,
@@ -203,8 +204,8 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("心率监测")
         self.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        self.resize(466, 900)
-        self.setMinimumSize(420, 640)
+        self.resize(980, 820)
+        self.setMinimumSize(720, 640)
         self._build_ui()
         self._restore_state()
 
@@ -214,7 +215,8 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------------ UI
     def _build_ui(self) -> None:
-        root = RootPanel(self)
+        """便当盒网格：卡片尺寸承担层级，间隙统一 16px。"""
+        root = BentoRootPanel(self)
         self.setCentralWidget(root)
         root.addWidget(self._build_header())
 
@@ -230,19 +232,90 @@ class MainWindow(QMainWindow):
         body = QWidget()
         scroll.setWidget(body)
         outer = QVBoxLayout(body)
-        outer.setContentsMargins(14, 6, 14, 2)
-        outer.setSpacing(10)
+        outer.setContentsMargins(16, 8, 16, 10)
+        outer.setSpacing(16)
 
-        outer.addWidget(self._build_hero())
-        outer.addWidget(self._build_switches())
-        self._device_card = self._build_device_panel()
-        outer.addWidget(self._device_card)
+        self._grid = QGridLayout()
+        self._grid.setContentsMargins(0, 0, 0, 0)
+        self._grid.setHorizontalSpacing(16)
+        self._grid.setVerticalSpacing(16)
+        outer.addLayout(self._grid)
+
+        self._hero_card = self._build_hero()          # 2x2 锚点卡
+        self._status_card = self._build_status_card() # 1x1
+        self._insight_card = self._build_insight_card()  # 1x1
+        self._control_card = self._build_switches()   # 2x1
+        self._device_card = self._build_device_panel() # 2x2
+        self._log_card = self._build_log_panel()      # 2x2
+        self._relayout_grid()
+        self._grid_cols = 4 if self.width() >= 900 else 2 if self.width() >= 620 else 1
 
         footer = QLabel("关闭时可选择最小化到托盘或直接退出")
         footer.setObjectName("Sub")
-        footer.setContentsMargins(0, 0, 0, 6)
+        footer.setContentsMargins(0, 0, 0, 2)
         footer.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         outer.addWidget(footer)
+
+    def _relayout_grid(self) -> None:
+        """按窗口宽度在 4 栏 / 2 栏 / 1 栏间切换，跨列跨行成对出现。"""
+        if not hasattr(self, "_grid"):
+            return
+        width = self.width()
+        cols = 4 if width >= 900 else 2 if width >= 620 else 1
+        old = self._grid
+        parent_layout = old.parent()
+        # QGridLayout 的列数不会因为移除控件而收缩，窄屏必须换新布局，
+        # 否则上一次的 4 栏空列会继续占宽度。
+        while old.count():
+            old.takeAt(0)
+        grid = QGridLayout()
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(16)
+        grid.setVerticalSpacing(16)
+        if cols == 4:
+            placements = [
+                (self._hero_card, 0, 0, 2, 2),    # 2x2 锚点
+                (self._status_card, 0, 2, 1, 1),  # 1x1
+                (self._insight_card, 0, 3, 1, 1), # 1x1
+                (self._control_card, 1, 2, 1, 2), # 2x1
+                (self._device_card, 2, 0, 2, 2),  # 2x2
+                (self._log_card, 2, 2, 2, 2),     # 2x2
+            ]
+        elif cols == 2:
+            placements = [
+                (self._hero_card, 0, 0, 2, 2),
+                (self._status_card, 2, 0, 1, 1),
+                (self._insight_card, 2, 1, 1, 1),
+                (self._control_card, 3, 0, 1, 2),
+                (self._device_card, 4, 0, 2, 2),
+                (self._log_card, 6, 0, 2, 2),
+            ]
+        else:
+            placements = [
+                (self._hero_card, 0, 0, 2, 1),
+                (self._status_card, 2, 0, 1, 1),
+                (self._insight_card, 3, 0, 1, 1),
+                (self._control_card, 4, 0, 1, 1),
+                (self._device_card, 5, 0, 2, 1),
+                (self._log_card, 7, 0, 2, 1),
+            ]
+        for widget, row, col, rowspan, colspan in placements:
+            grid.addWidget(widget, row, col, rowspan, colspan)
+        for column in range(cols):
+            grid.setColumnStretch(column, 1)
+        last_row = 4 if cols == 4 else 8 if cols == 2 else 9
+        grid.setRowStretch(last_row, 1)
+        if parent_layout is not None:
+            parent_layout.removeItem(old)
+            parent_layout.insertLayout(0, grid)
+        old.deleteLater()
+        self._grid = grid
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        if getattr(self, "_grid_cols", None) != (4 if self.width() >= 900 else 2 if self.width() >= 620 else 1):
+            self._grid_cols = 4 if self.width() >= 900 else 2 if self.width() >= 620 else 1
+            self._relayout_grid()
 
     def _build_header(self) -> TitleBar:
         bar = TitleBar("心率监测", "BLE 手环 · 实时广播数据")
@@ -255,59 +328,33 @@ class MainWindow(QMainWindow):
         return bar
 
     def _build_hero(self) -> QWidget:
-        card = SoftCard(None, object_name="Hero")
+        """整屏唯一锚点卡：墨黑底、白字、2x2 大格。"""
+        card = BentoCard(None, object_name="BentoAnchor", anchor=True)
         lay = QVBoxLayout(card)
-        lay.setContentsMargins(20, 15, 20, 15)
-        lay.setSpacing(4)
+        lay.setContentsMargins(31, 24, 31, 24)
+        lay.setSpacing(10)
 
-        top = QHBoxLayout()
-        top.setContentsMargins(0, 0, 0, 0)
-        self._hint = QLabel("正在初始化蓝牙…")
-        self._hint.setObjectName("Sub")
-        top.addWidget(self._hint, 1)
-        self._battery = QLabel("")
-        self._battery.setObjectName("Battery")
-        top.addWidget(self._battery, 0, Qt.AlignmentFlag.AlignRight)
-        lay.addLayout(top)
+        title = QLabel("实时心率")
+        title.setObjectName("CardTitle")
+        title.setStyleSheet("color: rgba(255,255,255,0.72); font-size: 14px; font-weight: 600;")
+        lay.addWidget(title)
 
         main_row = QHBoxLayout()
         main_row.setContentsMargins(0, 0, 0, 0)
-        main_row.setSpacing(6)
-
-        value_col = QHBoxLayout()
-        value_col.setContentsMargins(0, 0, 0, 0)
-        value_col.setSpacing(6)
+        main_row.setSpacing(10)
         self._bpm = QLabel("--")
-        font = QFont("Bahnschrift", 50)
-        font.setWeight(QFont.Weight.Light)
+        font = QFont("Inter", 56)
+        font.setWeight(QFont.Weight.DemiBold)
         self._bpm.setFont(font)
-        self._bpm.setStyleSheet(f"color: {MUTED};")
-        value_col.addWidget(self._bpm, 0, Qt.AlignmentFlag.AlignBottom)
+        self._bpm.setStyleSheet("color: #ffffff;")
+        main_row.addWidget(self._bpm, 0, Qt.AlignmentFlag.AlignBottom)
         unit = QLabel("BPM")
-        unit.setStyleSheet(f"color: {MUTED}; font-size: 12px; padding-bottom: 12px;")
-        value_col.addWidget(unit, 0, Qt.AlignmentFlag.AlignBottom)
-        value_col.addStretch(1)
-        main_row.addLayout(value_col, 1)
-
-        self._heart = PulseHeart(62)
+        unit.setStyleSheet("color: rgba(255,255,255,0.62); font-size: 12px; padding-bottom: 14px;")
+        main_row.addWidget(unit, 0, Qt.AlignmentFlag.AlignBottom)
+        main_row.addStretch(1)
+        self._heart = PulseHeart(58)
         main_row.addWidget(self._heart, 0, Qt.AlignmentFlag.AlignVCenter)
         lay.addLayout(main_row)
-
-        zone_row = QHBoxLayout()
-        zone_row.setContentsMargins(0, 0, 0, 0)
-        self._zone = ZoneBadge()
-        zone_row.addWidget(self._zone, 0, Qt.AlignmentFlag.AlignLeft)
-        zone_row.addStretch(1)
-        self._source = QLabel("")
-        self._source.setObjectName("Sub")
-        zone_row.addWidget(self._source, 0, Qt.AlignmentFlag.AlignRight)
-        lay.addLayout(zone_row)
-
-        line = QFrame()
-        line.setObjectName("Divider")
-        lay.addSpacing(4)
-        lay.addWidget(line)
-        lay.addSpacing(2)
 
         stats = QHBoxLayout()
         stats.setContentsMargins(0, 0, 0, 0)
@@ -318,8 +365,44 @@ class MainWindow(QMainWindow):
         lay.addLayout(stats)
 
         self._spark = Sparkline()
-        lay.addSpacing(4)
-        lay.addWidget(self._spark)
+        self._spark.set_dark(True)
+        lay.addWidget(self._spark, 1)
+        return card
+
+    def _build_status_card(self) -> QWidget:
+        """小格：连接状态与电量。"""
+        card = BentoCard(None)
+        lay = QVBoxLayout(card)
+        lay.setContentsMargins(31, 24, 31, 24)
+        lay.setSpacing(8)
+        title = QLabel("连接状态")
+        title.setObjectName("CardTitle")
+        lay.addWidget(title)
+        self._hint = QLabel("正在初始化蓝牙…")
+        self._hint.setObjectName("Sub")
+        self._hint.setWordWrap(True)
+        self._hint.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
+        lay.addWidget(self._hint, 1)
+        self._battery = QLabel("")
+        self._battery.setObjectName("Battery")
+        lay.addWidget(self._battery, 0, Qt.AlignmentFlag.AlignBottom)
+        return card
+
+    def _build_insight_card(self) -> QWidget:
+        """小格：心率区间与数据来源。"""
+        card = BentoCard(None)
+        lay = QVBoxLayout(card)
+        lay.setContentsMargins(31, 24, 31, 24)
+        lay.setSpacing(10)
+        title = QLabel("心率区间")
+        title.setObjectName("CardTitle")
+        lay.addWidget(title)
+        self._zone = ZoneBadge()
+        lay.addWidget(self._zone, 0, Qt.AlignmentFlag.AlignLeft)
+        self._source = QLabel("")
+        self._source.setObjectName("Sub")
+        self._source.setWordWrap(True)
+        lay.addWidget(self._source, 1, Qt.AlignmentFlag.AlignTop)
         return card
 
     def _add_stat(self, row: QHBoxLayout, label: str) -> QLabel:
@@ -336,9 +419,9 @@ class MainWindow(QMainWindow):
         return value
 
     def _build_switches(self) -> QWidget:
-        card = SoftCard(None, object_name="Card")
+        card = BentoCard(None)
         lay = QVBoxLayout(card)
-        lay.setContentsMargins(18, 5, 18, 5)
+        lay.setContentsMargins(31, 20, 31, 20)
         lay.setSpacing(0)
 
         row1, self._floating_switch = self._switch_row(
@@ -402,10 +485,10 @@ class MainWindow(QMainWindow):
         return row, switch
 
     def _build_device_panel(self) -> QWidget:
-        card = SoftCard(None, object_name="Card")
+        card = BentoCard(None)
         lay = QVBoxLayout(card)
-        lay.setContentsMargins(16, 12, 16, 14)
-        lay.setSpacing(8)
+        lay.setContentsMargins(31, 24, 31, 24)
+        lay.setSpacing(12)
 
         head = QHBoxLayout()
         head.setContentsMargins(2, 0, 0, 0)
@@ -458,24 +541,38 @@ class MainWindow(QMainWindow):
         auto_row.addWidget(self._auto_switch, 0, Qt.AlignmentFlag.AlignVCenter)
         lay.addLayout(auto_row)
 
+        card.setVisible(self.settings.device_management)
+        return card
+
+    def _build_log_panel(self) -> QWidget:
+        """2x2 卡片：运行日志与最近会话。"""
+        card = BentoCard(None)
+        lay = QVBoxLayout(card)
+        lay.setContentsMargins(31, 24, 31, 24)
+        lay.setSpacing(10)
+        title = QLabel("运行日志")
+        title.setObjectName("CardTitle")
+        lay.addWidget(title)
+
         self._log = QPlainTextEdit()
         self._log.setObjectName("Log")
         self._log.setReadOnly(True)
-        self._log.setFixedHeight(56)
         self._log.setMaximumBlockCount(200)
         self._log.setPlaceholderText("运行日志")
-        lay.addWidget(self._log)
+        lay.addWidget(self._log, 1)
 
+        self._session_title = QLabel("最近连接")
+        self._session_title.setObjectName("CardTitle")
+        self._session_title.setVisible(False)
+        lay.addWidget(self._session_title)
         self._session_list = QListWidget()
         self._session_list.setObjectName("SessionList")
-        self._session_list.setMaximumHeight(92)
+        self._session_list.setMaximumHeight(110)
         self._session_list.setStyleSheet(
             "QListWidget { background: transparent; border: none; } QListWidget::item { padding: 2px 4px; }"
         )
         self._session_list.setVisible(bool(self._sessions))
         lay.addWidget(self._session_list)
-
-        card.setVisible(self.settings.device_management)
         return card
 
     # ------------------------------------------------------------------ 状态
@@ -569,7 +666,7 @@ class MainWindow(QMainWindow):
         self._stat_max.setText(str(max(hist_vals)))
 
         self._bpm.setText(str(bpm))
-        self._bpm.setStyleSheet(f"color: {color};")
+        self._bpm.setStyleSheet("color: #ffffff;")
         self._heart.set_bpm(bpm, color)
         self._zone.set_zone(zone)
         self._source.setText(f"历史 · {zone} · {ago_text(ts)}")
@@ -664,7 +761,7 @@ class MainWindow(QMainWindow):
         zone = heart_rate_zone(bpm)
         color = ACCENT
         self._bpm.setText(str(bpm))
-        self._bpm.setStyleSheet(f"color: {color};")
+        self._bpm.setStyleSheet("color: #ffffff;")
         self._heart.set_bpm(bpm, color)
         self._zone.set_zone(zone)
         self._source.setText(source)
@@ -699,6 +796,8 @@ class MainWindow(QMainWindow):
                 f"最大 {record.get('max')} · 最后 {record.get('last')}"
             )
             self._session_list.addItem(item)
+        self._session_list.setVisible(bool(self._sessions))
+        self._session_title.setVisible(bool(self._sessions))
 
     def _update_stats(self) -> None:
         cutoff = time.monotonic() - 600
@@ -715,7 +814,7 @@ class MainWindow(QMainWindow):
         self._last_hr_time = 0.0
         self._last_source = ""
         self._bpm.setText("--")
-        self._bpm.setStyleSheet(f"color: {MUTED};")
+        self._bpm.setStyleSheet("color: rgba(255,255,255,0.7);")
         self._heart.set_bpm(0)
         self._zone.set_zone(None)
         self._source.setText("")

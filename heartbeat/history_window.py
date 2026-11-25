@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .chrome import RootPanel, TitleBar
+from .chrome import BentoRootPanel, RootPanel, TitleBar
 from .widgets import RaisedButton, SoftCard, Sparkline, draw_recessed
 
 
@@ -194,7 +194,7 @@ class HistoryWindow(QDialog):
     def _build_ui(self) -> None:
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
-        outer.addWidget(RootPanel(self))
+        outer.addWidget(BentoRootPanel(self))
         root = self.layout().itemAt(0).widget()
         assert isinstance(root, RootPanel)
 

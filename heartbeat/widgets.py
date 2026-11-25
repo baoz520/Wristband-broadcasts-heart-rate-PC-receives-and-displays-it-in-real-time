@@ -48,6 +48,11 @@ from PySide6.QtWidgets import (
 from .theme import (
     ACCENT,
     BASE,
+    BENTO_BORDER,
+    BENTO_CARD,
+    BENTO_INK,
+    BENTO_SKY,
+    BENTO_VIOLET,
     BLURPLE,
     CORAL,
     HIGHLIGHT,
@@ -462,8 +467,14 @@ class Sparkline(QWidget):
         self._points: deque[tuple[float, int]] = deque()
         self._history_mode = False
         self._axis_labels: tuple[str, str, str] = ("−60 秒", "30 秒", "现在")
+        self._dark = False
         self.setMinimumHeight(96)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+    def set_dark(self, dark: bool) -> None:
+        """在墨黑锚点卡里改用亮色网格与曲线。"""
+        self._dark = bool(dark)
+        self.update()
 
     def add(self, bpm: int, ts: float | None = None) -> None:
         """实时追加一个样本，保持最近 60 秒窗口。"""
@@ -515,7 +526,9 @@ class Sparkline(QWidget):
         left, right, top, bottom = 2.0, self.width() - 2.0, 8.0, self.height() - 18.0
         plot = QRectF(left, top, max(1.0, right - left), max(1.0, bottom - top))
 
-        grid_pen = QPen(rgba(SHADOW_GREY, 90), 1)
+        grid_pen = QPen(
+            rgba("#ffffff", 34) if self._dark else rgba(SHADOW_GREY, 90), 1
+        )
         grid_pen.setStyle(Qt.PenStyle.DotLine)
         p.setPen(grid_pen)
         for i in range(3):
@@ -524,7 +537,7 @@ class Sparkline(QWidget):
 
         vals = [v for _, v in self._points]
         if len(vals) < 2:
-            p.setPen(QColor(MUTED))
+            p.setPen(QColor("#cbd5e1" if self._dark else MUTED))
             p.setFont(QFont("Inter", 9))
             p.drawText(plot, Qt.AlignmentFlag.AlignCenter, "等待心率数据…")
             p.end()
@@ -563,9 +576,10 @@ class Sparkline(QWidget):
             fill.lineTo(pt)
         fill.lineTo(pts[-1].x(), plot.bottom())
         fill.closeSubpath()
+        fill_color = BENTO_SKY if self._dark else BLURPLE
         grad = QLinearGradient(0, plot.top(), 0, plot.bottom())
-        grad.setColorAt(0.0, rgba(BLURPLE, 40))
-        grad.setColorAt(1.0, rgba(BLURPLE, 4))
+        grad.setColorAt(0.0, rgba(fill_color, 70 if self._dark else 40))
+        grad.setColorAt(1.0, rgba(fill_color, 6 if self._dark else 4))
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(grad)
         p.drawPath(fill)
@@ -573,7 +587,7 @@ class Sparkline(QWidget):
         line = QPainterPath(pts[0])
         for pt in pts[1:]:
             line.lineTo(pt)
-        pen = QPen(QColor(ACCENT), 2.2)
+        pen = QPen(QColor(BENTO_SKY if self._dark else ACCENT), 2.2)
         pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
         p.setPen(pen)
@@ -582,12 +596,12 @@ class Sparkline(QWidget):
 
         last = pts[-1]
         p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(rgba(BLURPLE, 90))
+        p.setBrush(rgba(fill_color, 90))
         p.drawEllipse(last, 6.0, 6.0)
-        p.setBrush(QColor(ACCENT))
+        p.setBrush(QColor(BENTO_SKY if self._dark else ACCENT))
         p.drawEllipse(last, 3.1, 3.1)
 
-        p.setPen(QColor(MUTED))
+        p.setPen(QColor("#cbd5e1" if self._dark else MUTED))
         p.setFont(QFont("Inter", 8))
         left_label, mid_label, right_label = self._axis_labels
         p.drawText(QPointF(plot.left(), self.height() - 3), left_label)
@@ -953,4 +967,74 @@ class SoftCard(QFrame):
             white_alpha=int(182 + 20 * hv),
             rim=True,
         )
+        p.end()
+
+
+class BentoCard(SoftCard):
+    """便当盒网格中的卡片：白底 / 墨黑渐变锚点、24px 圆角、极浅描边。
+
+    与普通 SoftCard 的区别：不使用同色新拟物阴影，而是白卡浮在 Snow 画布上；
+    hover 300ms 内上浮 4px、放大 1%、阴影由 2% 扩到 8%。尺寸本身承担层级，
+    颜色只用于唯一一张锚点卡。
+    """
+
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        object_name: str = "BentoCard",
+        radius: float = 24.0,
+        anchor: bool | str = False,
+    ):
+        super().__init__(parent, object_name=object_name, radius=radius)
+        self._anchor = anchor
+        # 便当盒规范：300ms ease-out（HoverAnimator 默认是 180ms）
+        self._hover_anim.setDuration(300)
+
+    @property
+    def is_anchor(self) -> bool:
+        return bool(self._anchor)
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        if self._transparent:
+            # 兼容悬浮窗隐藏背景模式
+            super().paintEvent(event)
+            return
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        w, h = self.width(), self.height()
+        if w <= 0 or h <= 0:
+            p.end()
+            return
+
+        hv = self.hover
+        pad = 7.0
+        lift = 4.0 * hv
+        grow = 0.01 * hv
+        cw, ch = max(1.0, w - pad * 2), max(1.0, h - pad * 2)
+        dx, dy = cw * grow / 2.0, ch * grow / 2.0
+        rect = QRectF(pad - dx, pad + lift - dy, cw + dx * 2, ch + dy * 2)
+        r = min(self._radius, rect.width() / 2.0, rect.height() / 2.0)
+
+        # 一层几乎看不见的投影，hover 时扩散到 8% 透明度
+        shadow, spad = blurred_shape(
+            int(rect.width()), int(rect.height()), int(r),
+            0, int(5 + 3 * hv), int(10 + 20 * hv),
+            "#000000", int(6 + 18 * hv), hollow=True,
+        )
+        p.drawPixmap(QPointF(rect.x() - spad, rect.y() - spad), shadow)
+
+        if self._anchor:
+            gradient = QLinearGradient(rect.topLeft(), rect.bottomRight())
+            if self._anchor == "gradient":
+                gradient.setColorAt(0.0, QColor(BENTO_SKY))
+                gradient.setColorAt(1.0, QColor(BENTO_VIOLET))
+            else:
+                gradient.setColorAt(0.0, QColor(BENTO_INK))
+                gradient.setColorAt(1.0, QColor("#2f3037"))
+            p.setBrush(gradient)
+            p.setPen(Qt.PenStyle.NoPen)
+        else:
+            p.setBrush(QColor(BENTO_CARD))
+            p.setPen(QPen(QColor(BENTO_BORDER), 1.0))
+        p.drawRoundedRect(rect, r, r)
         p.end()

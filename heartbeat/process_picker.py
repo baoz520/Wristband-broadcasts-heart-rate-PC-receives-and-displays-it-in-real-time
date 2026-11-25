@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .chrome import RootPanel, TitleBar
+from .chrome import BentoRootPanel, TitleBar
 from .game import GENERIC_FOLDERS, _pretty_name, match_game, scan_processes
 from .widgets import RaisedButton
 
@@ -75,7 +75,7 @@ class ProcessPickerDialog(QDialog):
     def _build_ui(self) -> None:
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
-        outer.addWidget(RootPanel(self))
+        outer.addWidget(BentoRootPanel(self))
         root = self.layout().itemAt(0).widget()
 
         bar = TitleBar("选择游戏进程", "从当前运行的进程里挑出游戏")

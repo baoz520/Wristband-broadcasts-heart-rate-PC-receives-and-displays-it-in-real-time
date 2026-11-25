@@ -4,6 +4,8 @@
 
 ![主界面](screenshots/main.png)
 
+主界面采用便当盒网格：Snow 画布 + 白卡 / 唯一墨黑锚点卡，卡片尺寸分主次，统一 16px 间隙与 24px 圆角，hover 300ms 上浮放大；窗口变窄时自动退化为两栏，顺序不变（[窄屏预览](screenshots/main_narrow.png)）。
+
 ![悬浮窗](screenshots/floating.png)
 
 ## 功能

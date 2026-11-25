@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .chrome import RootPanel, TitleBar
+from .chrome import BentoRootPanel, TitleBar
 from .widgets import RaisedButton, ToggleSwitch
 
 
@@ -99,7 +99,7 @@ class SettingsWindow(QDialog):
     def _build_ui(self) -> None:
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
-        outer.addWidget(RootPanel(self))
+        outer.addWidget(BentoRootPanel(self))
         root = self.layout().itemAt(0).widget()
 
         bar = TitleBar("设置", "悬浮窗与游戏检测")

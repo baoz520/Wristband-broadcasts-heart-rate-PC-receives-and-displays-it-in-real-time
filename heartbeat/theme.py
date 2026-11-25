@@ -9,13 +9,13 @@ from PySide6.QtWidgets import QApplication
 BASE = "#e0e5ec"            # --color-base：页面与所有元素的共同基底
 SHADOW_GREY = "#b8bcc2"     # --color-shadow-grey：右下阴影色
 HIGHLIGHT = "#ffffff"       # --color-highlight：左上高光色
-BLURPLE = "#6d5dfc"         # --color-blurple：主行动与选中态
+BLURPLE = "#3b82f6"         # 便当盒 Sky：主行动与选中态（旧名保留兼容）
 CORAL = "#ff6b6b"           # --color-coral：警示与删除
 MINT = "#4ecdc4"            # --color-mint：成功与数据正向
 INK = "#3d4451"             # --color-text：深色文字只出现在内容层
 
 ACCENT = BLURPLE            # 心率主色 / 激活态（紫罗兰）
-ACCENT_SOFT = "#8a76f0"     # 紫罗兰的柔和变体（光晕）
+ACCENT_SOFT = "#93c5fd"     # Sky 的柔和变体（光晕）
 BG = BASE
 CARD = BASE
 CARD_ALT = BASE
@@ -26,6 +26,15 @@ MUTED = "#6f7a90"           # 界面层中灰文字
 GREEN = "#34d399"
 AMBER = "#fbbf24"
 RED = "#f87171"
+
+# --------------------------------------------------------------- 便当盒 token
+BENTO_SNOW = "#fafafa"          # 页面画布
+BENTO_CARD = "#ffffff"          # 卡片填充
+BENTO_INK = "#18181b"           # 锚点卡 / 主文字
+BENTO_BORDER = "#f4f4f5"        # 极浅描边
+BENTO_SKY = BLURPLE             # 主强调（沿用全局 ACCENT）
+BENTO_VIOLET = "#8b5cf6"        # 渐变第二强调
+BENTO_TANGERINE = "#f97316"     # 数据提醒（全屏最多一处）
 
 ZONE_COLORS = {
     "静息": "#5aa9ff",
@@ -51,8 +60,8 @@ QFrame#Hero, QFrame#Card {{
     border-radius: 24px;
 }}
 QFrame#DeviceRow {{
-    background: {BASE};
-    border: none;
+    background: {BENTO_SNOW};
+    border: 1px solid {BENTO_BORDER};
     border-radius: 16px;
 }}
 QFrame#Divider {{
@@ -80,6 +89,15 @@ QLabel#CardTitle {{
     font-size: 14px;
     font-weight: 600;
     color: {INK};
+}}
+/* 便当盒锚点卡：墨黑底上的文字统一转亮色 */
+QFrame#BentoAnchor QLabel#StatLabel,
+QFrame#BentoAnchor QLabel#Sub,
+QFrame#BentoAnchor QLabel#Battery {{
+    color: rgba(255, 255, 255, 0.65);
+}}
+QFrame#BentoAnchor QLabel#StatValue {{
+    color: {BENTO_CARD};
 }}
 QLabel#StatLabel {{
     color: {MUTED};
@@ -194,8 +212,8 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
     background: transparent;
 }}
 QPlainTextEdit#Log {{
-    background: {BASE};
-    border: none;
+    background: {BENTO_SNOW};
+    border: 1px solid {BENTO_BORDER};
     border-radius: 12px;
     color: {MUTED};
     font-family: "Cascadia Mono", "Consolas";
@@ -279,7 +297,7 @@ QMenu::item {{
     border-radius: 8px;
 }}
 QMenu::item:selected {{
-    background: rgba(109, 93, 252, 0.14);
+    background: rgba(59, 130, 246, 0.14);
     color: {BLURPLE};
 }}
 QMenu::separator {{

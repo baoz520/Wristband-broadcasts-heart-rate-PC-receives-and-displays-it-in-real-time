@@ -19,12 +19,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .theme import BLURPLE, CORAL, INK, MUTED
+from .theme import BENTO_BORDER, BENTO_SNOW, BLURPLE, CORAL, INK, MUTED
 from .widgets import (
     BrandMark,
     HoverAnimator,
     RaisedButton,
     SoftCheckBox,
+    blurred_shape,
     draw_raised,
     draw_recessed,
     mix_color,
@@ -298,6 +299,32 @@ class RootPanel(QWidget):
         else:
             self.unsetCursor()
         super().mouseMoveEvent(event)
+
+
+class BentoRootPanel(RootPanel):
+    """便当盒窗口外壳：Snow 画布 + 24px 圆角 + 极浅描边和一层软投影。
+
+    继承 RootPanel 以保留标题栏拖拽与四边缩放能力，只替换表面绘制。
+    """
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        w, h = self.width(), self.height()
+        if w <= 0 or h <= 0:
+            p.end()
+            return
+        m = FRAME_MARGIN
+        rect = QRectF(m, m, max(1.0, w - m * 2), max(1.0, h - m * 2))
+        shadow, pad = blurred_shape(
+            int(rect.width()), int(rect.height()), 24,
+            0, 6, 20, "#000000", 14, hollow=True,
+        )
+        p.drawPixmap(QPointF(rect.x() - pad, rect.y() - pad), shadow)
+        p.setPen(QPen(QColor(BENTO_BORDER), 1.0))
+        p.setBrush(QColor(BENTO_SNOW))
+        p.drawRoundedRect(rect, 24, 24)
+        p.end()
 
 
 class CloseCard(QFrame):

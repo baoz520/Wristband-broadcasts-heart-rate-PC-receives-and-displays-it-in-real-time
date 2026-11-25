@@ -37,7 +37,7 @@ def main() -> None:
     settings.floating_visible = True
 
     window = MainWindow(settings)
-    window.resize(466, 900)
+    window.resize(980, 820)
     window.show()
 
     now = time.monotonic()
@@ -80,6 +80,14 @@ def main() -> None:
     app.processEvents()
     app.processEvents()
     window.grab().save(str(OUT / "main.png"))
+
+    # 窄屏退化：2 栏网格，保留同样的 16px 间隙与卡片顺序
+    window.resize(720, 900)
+    app.processEvents()
+    app.processEvents()
+    window.grab().save(str(OUT / "main_narrow.png"))
+    window.resize(980, 820)
+    app.processEvents()
 
     floating = FloatingWindow()
     floating.set_link("connected", "C8:47:8C:1A:2B:3C", "Xiaomi Smart Band 8")
@@ -189,7 +197,7 @@ def main() -> None:
     finally:
         picker_module.scan_processes = original_scan
 
-    print("saved", OUT / "main.png", OUT / "floating.png",
+    print("saved", OUT / "main.png", OUT / "main_narrow.png", OUT / "floating.png",
           OUT / "floating_game.png", OUT / "history.png", OUT / "settings.png",
           OUT / "process_picker.png")
 
