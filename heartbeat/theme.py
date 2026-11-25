@@ -14,7 +14,9 @@ from PySide6.QtWidgets import QApplication
 BENTO_SNOW = "#fafafa"          # --color-snow：页面画布
 BENTO_CARD = "#ffffff"          # --color-card：卡片填充
 BENTO_INK = "#18181b"           # --color-ink：标题 / 主按钮 / 锚点卡
-BENTO_BORDER = "#f4f4f5"        # 极浅描边
+BENTO_BORDER = "#f4f4f5"        # 极浅描边（规范基准，内部细分隔用）
+BENTO_EDGE = "#dcdde1"          # 卡片外边界：比极浅描边深一档，保证白卡在 Snow 画布上有清晰轮廓
+BENTO_EDGE_HOVER = "#cbd5e1"    # 卡片 hover / 控件激活时的边界
 BENTO_SKY = "#3b82f6"           # 主强调与图标底
 BENTO_VIOLET = "#8b5cf6"        # 渐变锚点第二强调
 BENTO_TANGERINE = "#f97316"     # 数据与提醒（全屏最多一处）
@@ -62,12 +64,12 @@ QWidget {{
 }}
 QFrame#Hero, QFrame#Card {{
     background: {BENTO_CARD};
-    border: 1px solid {BENTO_BORDER};
+    border: 1px solid {BENTO_EDGE};
     border-radius: 24px;
 }}
 QFrame#DeviceRow {{
     background: {BENTO_CARD};
-    border: 1px solid {BENTO_BORDER};
+    border: 1px solid {BENTO_EDGE};
     border-radius: 16px;
 }}
 QFrame#Divider {{
@@ -138,7 +140,7 @@ QLabel#Pill {{
 QLabel#Badge {{
     background: {BENTO_SNOW};
     color: {BENTO_SKY};
-    border: 1px solid {BENTO_BORDER};
+    border: 1px solid {BENTO_EDGE};
     border-radius: 12px;
     padding: 3px 10px;
     font-size: 12px;
@@ -179,7 +181,7 @@ QPushButton#Primary {{
 }}
 QPushButton#Ghost {{
     background: {BENTO_SNOW};
-    border: 1px solid {BENTO_BORDER};
+    border: 1px solid {BENTO_EDGE};
     border-radius: 12px;
     color: {INK};
     font-size: 12px;
@@ -202,27 +204,61 @@ QScrollArea {{
 QScrollArea > QWidget > QWidget {{
     background: transparent;
 }}
+/* 滚动条：透明细轨 + 圆角滑块 + 三态反馈，去掉箭头与分页块 */
 QScrollBar:vertical {{
     background: transparent;
-    width: 6px;
-    margin: 2px;
+    width: 9px;
+    margin: 3px 1px 3px 0;
+}}
+QScrollBar::groove:vertical {{
+    background: transparent;
+    border-radius: 4px;
 }}
 QScrollBar::handle:vertical {{
     background: #d4d4d8;
-    border-radius: 3px;
-    min-height: 24px;
+    border-radius: 4px;
+    min-height: 32px;
+    margin: 0 1px;
 }}
 QScrollBar::handle:vertical:hover {{
     background: #a1a1aa;
 }}
-QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
-QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
-    height: 0px;
+QScrollBar::handle:vertical:pressed {{
+    background: #71717a;
+}}
+QScrollBar:horizontal {{
     background: transparent;
+    height: 9px;
+    margin: 0 3px 1px 3px;
+}}
+QScrollBar::groove:horizontal {{
+    background: transparent;
+    border-radius: 4px;
+}}
+QScrollBar::handle:horizontal {{
+    background: #d4d4d8;
+    border-radius: 4px;
+    min-width: 32px;
+    margin: 1px 0;
+}}
+QScrollBar::handle:horizontal:hover {{
+    background: #a1a1aa;
+}}
+QScrollBar::handle:horizontal:pressed {{
+    background: #71717a;
+}}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical,
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal,
+QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
+    height: 0px;
+    width: 0px;
+    background: transparent;
+    border: none;
 }}
 QPlainTextEdit#Log {{
     background: {BENTO_SNOW};
-    border: 1px solid {BENTO_BORDER};
+    border: 1px solid {BENTO_EDGE};
     border-radius: 12px;
     color: {MUTED};
     font-family: "Cascadia Mono", "Consolas";
@@ -258,7 +294,7 @@ QComboBox::drop-down {{
 }}
 QComboBox QAbstractItemView {{
     background: {BENTO_CARD};
-    border: 1px solid {BENTO_BORDER};
+    border: 1px solid {BENTO_EDGE};
     border-radius: 12px;
     color: {INK};
     selection-background-color: {BENTO_SKY};
@@ -266,9 +302,10 @@ QComboBox QAbstractItemView {{
     padding: 4px;
 }}
 QSlider::groove:horizontal {{
-    background: #e4e4e7;
-    height: 6px;
+    background: #ececef;
+    height: 5px;
     border-radius: 3px;
+    margin: 2px 0;
 }}
 QSlider::sub-page:horizontal {{
     background: {BENTO_SKY};
@@ -276,17 +313,40 @@ QSlider::sub-page:horizontal {{
 }}
 QSlider::handle:horizontal {{
     background: {BENTO_CARD};
-    border: 1px solid #d4d4d8;
-    width: 16px;
-    height: 16px;
-    margin: -6px 0;
-    border-radius: 8px;
+    border: 1px solid #cfcfd6;
+    width: 14px;
+    height: 14px;
+    margin: -5px 0;
+    border-radius: 7px;
 }}
 QSlider::handle:horizontal:hover {{
+    background: #f8fafc;
     border-color: {BENTO_SKY};
 }}
-QPlainTextEdit#Log QScrollBar:vertical {{
-    width: 4px;
+QSlider::handle:horizontal:pressed {{
+    background: {BENTO_SKY};
+    border-color: {BENTO_SKY};
+}}
+/* 日志区与设备列表：更纤细的滚动条，保持与卡片一致的圆角语言 */
+QPlainTextEdit#Log QScrollBar:vertical,
+QListWidget#SessionList QScrollBar:vertical {{
+    width: 7px;
+    margin: 4px 1px 4px 0;
+}}
+QPlainTextEdit#Log QScrollBar::handle:vertical,
+QListWidget#SessionList QScrollBar::handle:vertical {{
+    background: #cfcfd6;
+    border-radius: 3px;
+    min-height: 28px;
+    margin: 0 1px;
+}}
+QPlainTextEdit#Log QScrollBar::handle:vertical:hover,
+QListWidget#SessionList QScrollBar::handle:vertical:hover {{
+    background: #a1a1aa;
+}}
+QPlainTextEdit#Log QScrollBar::handle:vertical:pressed,
+QListWidget#SessionList QScrollBar::handle:vertical:pressed {{
+    background: #71717a;
 }}
 QListWidget#SessionList {{
     background: transparent;
@@ -294,10 +354,15 @@ QListWidget#SessionList {{
 }}
 QListWidget#SessionList::item {{
     padding: 3px 6px;
+    border-radius: 8px;
+}}
+QListWidget#SessionList::item:selected {{
+    background: rgba(59, 130, 246, 0.12);
+    color: {INK};
 }}
 QMenu {{
     background: {BENTO_CARD};
-    border: 1px solid {BENTO_BORDER};
+    border: 1px solid {BENTO_EDGE};
     border-radius: 12px;
     padding: 6px;
 }}
@@ -317,7 +382,7 @@ QMenu::separator {{
 QToolTip {{
     background: {BENTO_CARD};
     color: {INK};
-    border: 1px solid {BENTO_BORDER};
+    border: 1px solid {BENTO_EDGE};
     border-radius: 12px;
     padding: 6px 10px;
 }}

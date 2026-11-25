@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from .chrome import BentoRootPanel, TitleBar
-from .theme import BENTO_BORDER, BENTO_SNOW
+from .theme import BENTO_EDGE, BENTO_SNOW
 from .widgets import BentoCard, BentoGrid, RaisedButton, Sparkline
 
 
@@ -80,7 +80,7 @@ class _StatStrip(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         rect = QRectF(0.5, 0.5, self.width() - 1.0, self.height() - 1.0)
-        p.setPen(QPen(QColor(BENTO_BORDER), 1.0))
+        p.setPen(QPen(QColor(BENTO_EDGE), 1.0))
         p.setBrush(QColor(BENTO_SNOW))
         p.drawRoundedRect(rect, 12, 12)
         p.end()

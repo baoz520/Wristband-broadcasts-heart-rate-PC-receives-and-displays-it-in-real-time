@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .theme import BENTO_BORDER, BENTO_CARD, BENTO_SNOW, BLURPLE, CORAL, INK, MUTED
+from .theme import BENTO_CARD, BENTO_EDGE, BENTO_SNOW, BLURPLE, CORAL, INK, MUTED
 from .widgets import (
     BrandMark,
     HoverAnimator,
@@ -318,10 +318,10 @@ class BentoRootPanel(RootPanel):
         rect = QRectF(m, m, max(1.0, w - m * 2), max(1.0, h - m * 2))
         shadow, pad = blurred_shape(
             int(rect.width()), int(rect.height()), 24,
-            0, 6, 20, "#000000", 14, hollow=True,
+            0, 8, 26, "#000000", 22, hollow=True,
         )
         p.drawPixmap(QPointF(rect.x() - pad, rect.y() - pad), shadow)
-        p.setPen(QPen(QColor(BENTO_BORDER), 1.0))
+        p.setPen(QPen(QColor(BENTO_EDGE), 1.0))
         p.setBrush(QColor(BENTO_SNOW))
         p.drawRoundedRect(rect, 24, 24)
         p.end()
@@ -339,10 +339,10 @@ class CloseCard(QFrame):
             return
         rect = QRectF(0.5, 0.5, w - 1.0, h - 1.0)
         shadow, pad = blurred_shape(
-            w - 2, h - 2, 24, 0, 4, 18, "#000000", 12, hollow=True
+            w - 2, h - 2, 24, 0, 6, 22, "#000000", 20, hollow=True
         )
         p.drawPixmap(QPointF(rect.x() - pad, rect.y() - pad), shadow)
-        p.setPen(QPen(QColor(BENTO_BORDER), 1.0))
+        p.setPen(QPen(QColor(BENTO_EDGE), 1.0))
         p.setBrush(QColor(BENTO_CARD))
         p.drawRoundedRect(rect, 24, 24)
         p.end()

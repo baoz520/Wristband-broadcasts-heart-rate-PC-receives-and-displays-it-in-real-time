@@ -52,6 +52,7 @@ from .theme import (
     BASE,
     BENTO_BORDER,
     BENTO_CARD,
+    BENTO_EDGE,
     BENTO_INK,
     BENTO_SNOW,
     BENTO_SKY,
@@ -805,7 +806,7 @@ class RaisedButton(QPushButton):
         action = bool(self.property("action"))
         solid = danger or accent or action
         if not self.isEnabled():
-            p.setPen(QPen(QColor(BENTO_BORDER), 1.0))
+            p.setPen(QPen(QColor(BENTO_EDGE), 1.0))
             p.setBrush(QColor(BENTO_SNOW if solid else BENTO_CARD))
         elif solid:
             p.setPen(Qt.PenStyle.NoPen)
@@ -817,14 +818,14 @@ class RaisedButton(QPushButton):
                 fill = mix_color(BENTO_INK, "#3f3f46", hv)
             p.setBrush(fill)
         else:
-            # 次要按钮：白底浅描边 + 一层几乎看不见的软影
+            # 次要按钮：白底 + 可辨识描边与软影，和卡片边界语言保持一致
             shadow, spad = blurred_shape(
                 max(1, w - 2), max(1, h - 2), int(r),
-                0, int(2 + 2 * hv), int(6 + 6 * hv), "#000000", int(4 + 10 * hv),
+                0, int(3 + 2 * hv), int(8 + 6 * hv), "#000000", int(10 + 10 * hv),
                 hollow=True,
             )
             p.drawPixmap(QPointF(rect.x() - spad + 1, rect.y() - spad + 1), shadow)
-            p.setPen(QPen(QColor(BENTO_BORDER), 1.0))
+            p.setPen(QPen(QColor(BENTO_EDGE), 1.0))
             p.setBrush(QColor(BENTO_SNOW if hv > 0.5 else BENTO_CARD))
         p.drawRoundedRect(rect, r, r)
 
@@ -1024,11 +1025,11 @@ class BentoCard(SoftCard):
         rect = QRectF(pad - dx, pad + lift - dy, cw + dx * 2, ch + dy * 2)
         r = min(self._radius, rect.width() / 2.0, rect.height() / 2.0)
 
-        # 一层几乎看不见的投影，hover 时扩散到 8% 透明度
+        # 静止态就有一层可辨识的软投影，hover 时再扩散；边界由描边 + 阴影共同建立
         shadow, spad = blurred_shape(
             int(rect.width()), int(rect.height()), int(r),
-            0, int(5 + 3 * hv), int(10 + 20 * hv),
-            "#000000", int(6 + 18 * hv), hollow=True,
+            0, int(6 + 3 * hv), int(14 + 16 * hv),
+            "#000000", int(16 + 14 * hv), hollow=True,
         )
         p.drawPixmap(QPointF(rect.x() - spad, rect.y() - spad), shadow)
 
@@ -1044,7 +1045,8 @@ class BentoCard(SoftCard):
             p.setPen(Qt.PenStyle.NoPen)
         else:
             p.setBrush(QColor(BENTO_CARD))
-            p.setPen(QPen(QColor(BENTO_BORDER), 1.0))
+            # 外边界比规范基准深一档，白卡在 Snow 画布上才有明确轮廓
+            p.setPen(QPen(QColor(BENTO_EDGE), 1.0))
         p.drawRoundedRect(rect, r, r)
         p.end()
 
