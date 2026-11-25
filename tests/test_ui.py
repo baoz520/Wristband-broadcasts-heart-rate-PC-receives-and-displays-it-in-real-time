@@ -16,11 +16,15 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 from PySide6.QtCore import QEvent, Qt  # noqa: E402
+from PySide6.QtGui import QImage  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
+from heartbeat import floating as floating_module  # noqa: E402
+from heartbeat import settings_window as settings_module  # noqa: E402
 from heartbeat.chrome import CloseCard, CloseDialog, TitleButton  # noqa: E402
 from heartbeat.config import Settings  # noqa: E402
 from heartbeat.main_window import MainWindow  # noqa: E402
+from heartbeat.settings_window import SettingsWindow  # noqa: E402
 from heartbeat.theme import apply_theme  # noqa: E402
 
 
@@ -76,6 +80,38 @@ def main() -> None:
     finally:
         Settings.path = original_path
         temp_path.unlink(missing_ok=True)
+
+    # 3b. 选择图片背景必须同时切到图片模式，否则画面不会变化
+    image_path = Path(tempfile.gettempdir()) / "heartbeat_bg_mode_test.png"
+    image = QImage(16, 16, QImage.Format.Format_RGB32)
+    image.fill(Qt.GlobalColor.red)
+    image.save(str(image_path))
+    picker = SettingsWindow(Settings(background_mode="night"))
+    original_picker = settings_module.QFileDialog.getOpenFileName
+    settings_module.QFileDialog.getOpenFileName = staticmethod(
+        lambda *_args, **_kwargs: (str(image_path), "")
+    )
+    try:
+        picker._choose_bg_image()
+    finally:
+        settings_module.QFileDialog.getOpenFileName = original_picker
+        image_path.unlink(missing_ok=True)
+    assert picker.settings.background_mode == "image", "选图后未切换背景模式"
+    assert picker.settings.background_image.endswith("heartbeat_bg_mode_test.png")
+
+    # 3c. 锁定悬浮窗时必须应用鼠标穿透，解锁时撤销
+    click_through_calls: list[bool] = []
+    original_click_through = floating_module._set_native_click_through
+    floating_module._set_native_click_through = (
+        lambda _widget, enabled: click_through_calls.append(bool(enabled))
+    )
+    try:
+        probe_float = floating_module.FloatingWindow()
+        probe_float.set_locked(True)
+        probe_float.set_locked(False)
+    finally:
+        floating_module._set_native_click_through = original_click_through
+    assert click_through_calls == [True, False], "锁定/解锁未同步鼠标穿透状态"
 
     # 4. 悬停动画：交互控件必须带可动画的 hover 属性
     from heartbeat.widgets import RaisedButton, SoftCard, SoftCheckBox, ToggleSwitch
@@ -240,8 +276,6 @@ def main() -> None:
     ), "删除后历史窗口仍显示该记录"
 
     # 11. 设置窗口：悬浮窗自定义即时生效并持久化
-    from heartbeat.settings_window import SettingsWindow
-
     controller.show_settings_window()
     app.processEvents()
     settings_win = controller._settings_window

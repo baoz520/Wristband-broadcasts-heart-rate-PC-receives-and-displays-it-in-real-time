@@ -426,9 +426,16 @@ class SettingsWindow(QDialog):
         path, _ = QFileDialog.getOpenFileName(
             self, "选择背景图片", "", "图片文件 (*.png *.jpg *.jpeg *.bmp *.webp)"
         )
-        if path:
-            self._bg_image = path
-            self._emit_backdrop_if_changed()
+        if not path:
+            return
+        self._bg_image = path
+        # 选了图片必须同时切到图片模式，否则仍按夜景绘制，看起来“没效果”。
+        index = self._bg_combo.findData("image")
+        if index >= 0:
+            self._bg_combo.blockSignals(True)
+            self._bg_combo.setCurrentIndex(index)
+            self._bg_combo.blockSignals(False)
+        self._emit_backdrop_if_changed()
 
     def _clear_bg_image(self) -> None:
         self._bg_image = ""

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 import time
 from typing import Optional
 
@@ -39,6 +40,42 @@ TEXT_ON_GAME_MUTED = "#cbd5e1"
 GAME_FLOAT_NORMAL = "normal"          # 保持原样
 GAME_FLOAT_TRANSPARENT = "transparent"  # 隐藏拟物底板，只留数据
 GAME_FLOAT_HIDDEN = "hidden"           # 整窗自动隐藏
+
+
+def _set_native_click_through(widget: QWidget, enabled: bool) -> None:
+    """Windows 下让顶层窗口鼠标穿透；其他平台静默忽略。
+
+    仅靠 Qt 的 WA_TransparentForMouseEvents 对顶层窗口无效，必须改 Win32
+    扩展样式：WS_EX_TRANSPARENT 让点击落到后面的程序，WS_EX_LAYERED
+    保证半透明窗口仍按分层窗口渲染。解锁时只清掉 TRANSPARENT，保留原样式。
+    """
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        user32 = ctypes.windll.user32
+        getter = getattr(user32, "GetWindowLongPtrW", None) or user32.GetWindowLongW
+        setter = getattr(user32, "SetWindowLongPtrW", None) or user32.SetWindowLongW
+        getter.argtypes = [wintypes.HWND, ctypes.c_int]
+        getter.restype = ctypes.c_ssize_t
+        setter.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_ssize_t]
+        setter.restype = ctypes.c_ssize_t
+
+        hwnd = int(widget.winId())
+        gwl_exstyle = -20
+        ws_ex_layered = 0x80000
+        ws_ex_transparent = 0x20
+        style = getter(hwnd, gwl_exstyle)
+        if enabled:
+            style |= ws_ex_layered | ws_ex_transparent
+        else:
+            style &= ~ws_ex_transparent
+        setter(hwnd, gwl_exstyle, style)
+    except Exception:
+        # 非 Windows 或权限受限时，锁定仍至少禁止拖动，不影响其它功能
+        pass
 
 
 class FloatingWindow(QWidget):
@@ -233,7 +270,11 @@ class FloatingWindow(QWidget):
     def set_locked(self, locked: bool) -> None:
         self._locked = locked
         self._close.setVisible(not locked)
+        self._set_click_through()
         self.update()
+
+    def _set_click_through(self) -> None:
+        _set_native_click_through(self, self._locked)
 
     # ---------------------------------------------------------- 外观自定义
     def set_appearance(
@@ -397,6 +438,8 @@ class FloatingWindow(QWidget):
 
     def showEvent(self, event) -> None:  # noqa: N802
         super().showEvent(event)
+        # Qt 可能在窗口重新创建时重置扩展样式，显示后重新应用锁定状态
+        self._set_click_through()
         QTimer.singleShot(0, lambda: animate_show(self, 220))
 
     def resizeEvent(self, event) -> None:  # noqa: N802
@@ -443,6 +486,7 @@ class FloatingWindow(QWidget):
         act_lock = menu.addAction("锁定位置")
         act_lock.setCheckable(True)
         act_lock.setChecked(self._locked)
+        act_lock.setToolTip("锁定后鼠标可穿透悬浮窗；解锁请从托盘菜单操作")
         act_hide = menu.addAction("隐藏悬浮窗")
         menu.addSeparator()
         act_quit = menu.addAction("退出")

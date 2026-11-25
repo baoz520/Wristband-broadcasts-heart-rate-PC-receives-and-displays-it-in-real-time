@@ -124,6 +124,10 @@ class Controller(QObject):
         menu.addSeparator()
         self._act_float = menu.addAction("显示悬浮窗")
         self._act_float.setCheckable(True)
+        self._act_lock = menu.addAction("锁定悬浮窗位置")
+        self._act_lock.setCheckable(True)
+        self._act_lock.setChecked(bool(self.settings.floating_locked))
+        self._act_lock.setToolTip("锁定后鼠标可穿透悬浮窗；解锁请从托盘操作")
         self._act_devices = menu.addAction("设备管理")
         self._act_devices.setCheckable(True)
         self._act_close_prompt = menu.addAction("关闭时询问")
@@ -135,6 +139,7 @@ class Controller(QObject):
 
         self._act_show.triggered.connect(self.show_main)
         self._act_float.toggled.connect(self.set_floating)
+        self._act_lock.toggled.connect(self._toggle_floating_lock)
         self._act_devices.toggled.connect(self.set_device_management)
         self._act_close_prompt.toggled.connect(self._set_close_prompt)
         self._act_quit.triggered.connect(self.quit)
@@ -176,6 +181,9 @@ class Controller(QObject):
         self._act_float.blockSignals(True)
         self._act_float.setChecked(self.settings.floating_visible)
         self._act_float.blockSignals(False)
+        self._act_lock.blockSignals(True)
+        self._act_lock.setChecked(bool(self.settings.floating_locked))
+        self._act_lock.blockSignals(False)
         self._act_devices.blockSignals(True)
         self._act_devices.setChecked(self.settings.device_management)
         self._act_devices.blockSignals(False)
@@ -430,8 +438,16 @@ class Controller(QObject):
             return
         self.worker.start_scan()
 
+    def _toggle_floating_lock(self, locked: bool) -> None:
+        """托盘菜单锁定/解锁：悬浮窗本身鼠标穿透后只能从这里解除。"""
+        self.floating.set_locked(bool(locked))
+        self._set_floating_locked(bool(locked))
+
     def _set_floating_locked(self, locked: bool) -> None:
         self.settings.floating_locked = bool(locked)
+        self._act_lock.blockSignals(True)
+        self._act_lock.setChecked(bool(locked))
+        self._act_lock.blockSignals(False)
         self._save_settings()
 
     def _save_floating_position(self) -> None:
