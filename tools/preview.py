@@ -13,10 +13,11 @@ os.environ.setdefault("QT_QPA_PLATFORM", "windows")
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from PySide6.QtGui import QColor, QPainter, QPixmap  # noqa: E402
+from PySide6.QtGui import QBrush, QColor, QLinearGradient, QPainter, QPixmap  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
-from PySide6.QtWidgets import QApplication  # noqa: E402
+from PySide6.QtWidgets import QApplication, QScrollArea  # noqa: E402
 
+from heartbeat.backdrop import Backdrop  # noqa: E402
 from heartbeat.ble import DeviceInfo  # noqa: E402
 from heartbeat.config import Settings  # noqa: E402
 from heartbeat.floating import FloatingWindow  # noqa: E402
@@ -181,6 +182,16 @@ def main() -> None:
     app.processEvents()
     settings_win.grab().save(str(OUT / "settings.png"))
 
+    # 滚到底部单独展示背景自定义卡片
+    settings_scroll = settings_win.findChild(QScrollArea)
+    if settings_scroll is not None:
+        settings_scroll.verticalScrollBar().setValue(
+            settings_scroll.verticalScrollBar().maximum()
+        )
+        QTest.qWait(120)
+        settings_win.grab().save(str(OUT / "settings_background.png"))
+        settings_scroll.verticalScrollBar().setValue(0)
+
     # 进程选择器：用固定假进程渲染，避免截图里出现用户真实进程
     import heartbeat.process_picker as picker_module
     from heartbeat.process_picker import ProcessPickerDialog
@@ -203,9 +214,37 @@ def main() -> None:
     finally:
         picker_module.scan_processes = original_scan
 
+    # 自定义浅色图片背景：验证自动暗罩下半透明界面仍然可读
+    bg_canvas = QPixmap(1280, 800)
+    bg_painter = QPainter(bg_canvas)
+    grad = QLinearGradient(0, 0, 1280, 800)
+    grad.setColorAt(0.0, QColor("#f7d9a0"))
+    grad.setColorAt(0.5, QColor("#cfe8ff"))
+    grad.setColorAt(1.0, QColor("#f6b8c8"))
+    bg_painter.fillRect(bg_canvas.rect(), QBrush(grad))
+    bg_painter.end()
+    bg_path = OUT / "demo_light_bg.png"
+    bg_canvas.save(str(bg_path))
+
+    Backdrop.configure("image", "#0b1322", str(bg_path), 45)
+    Backdrop.refresh_all()
+    QTest.qWait(180)
+    window.grab().save(str(OUT / "main_custom_bg.png"))
+    history.grab().save(str(OUT / "history_custom_bg.png"))
+
+    from heartbeat.chrome import CloseDialog
+    dialog = CloseDialog(window)
+    dialog.show()
+    QTest.qWait(320)
+    dialog.grab().save(str(OUT / "close_dialog.png"))
+    Backdrop.configure("night")
+    Backdrop.refresh_all()
+
     print("saved", OUT / "main.png", OUT / "main_narrow.png", OUT / "floating.png",
           OUT / "floating_game.png", OUT / "history.png", OUT / "settings.png",
-          OUT / "process_picker.png")
+          OUT / "process_picker.png", OUT / "settings_background.png",
+          OUT / "main_custom_bg.png",
+          OUT / "history_custom_bg.png", OUT / "close_dialog.png")
 
 
 if __name__ == "__main__":

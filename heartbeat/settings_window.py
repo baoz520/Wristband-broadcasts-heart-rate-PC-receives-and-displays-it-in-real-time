@@ -7,9 +7,12 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
+    QColorDialog,
     QComboBox,
     QDialog,
+    QFileDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -66,6 +69,8 @@ class SettingsWindow(QDialog):
     gameShowFloatChanged = Signal(bool)
     gameFloatModeChanged = Signal(str)
     gamePollChanged = Signal(int)
+    # 背景自定义
+    backdropChanged = Signal()
 
     def __init__(self, settings, parent: QWidget | None = None):
         super().__init__(parent)
@@ -184,22 +189,116 @@ class SettingsWindow(QDialog):
         pick_row.addWidget(pick, 0, Qt.AlignmentFlag.AlignRight)
         custom_sec.lay.addLayout(pick_row)
 
+        # ---------------- 背景自定义（宽卡） ----------------
+        bg_sec = _Section("背景自定义")
+        tip = QLabel(
+            "夜景 / 纯色 / 本地图片；系统会自动压暗浅色背景，保证半透明界面清晰可读"
+        )
+        tip.setObjectName("Sub")
+        tip.setWordWrap(True)
+        bg_sec.lay.addWidget(tip)
+
+        bg_row = QWidget()
+        bg_row.setFixedHeight(56)
+        bh = QHBoxLayout(bg_row)
+        bh.setContentsMargins(0, 4, 0, 4)
+        bh.setSpacing(10)
+        bcol = QVBoxLayout()
+        bcol.setContentsMargins(0, 0, 0, 0)
+        bcol.setSpacing(0)
+        bname = QLabel("背景模式")
+        bname.setObjectName("H2")
+        bsub = QLabel("默认夜景，或换成自己的颜色 / 图片")
+        bsub.setObjectName("Sub")
+        bcol.addWidget(bname)
+        bcol.addWidget(bsub)
+        bh.addLayout(bcol, 1)
+        self._bg_combo = QComboBox()
+        self._bg_combo.addItem("夜景默认", "night")
+        self._bg_combo.addItem("纯色背景", "solid")
+        self._bg_combo.addItem("本地图片", "image")
+        self._bg_combo.setFixedWidth(160)
+        self._bg_combo.currentIndexChanged.connect(self._on_backdrop_control)
+        bh.addWidget(self._bg_combo, 0, Qt.AlignmentFlag.AlignVCenter)
+        bg_sec.lay.addWidget(bg_row)
+        bg_sec.add_divider()
+
+        color_row = QWidget()
+        color_row.setFixedHeight(56)
+        ch = QHBoxLayout(color_row)
+        ch.setContentsMargins(0, 4, 0, 4)
+        ch.setSpacing(10)
+        ccol = QVBoxLayout()
+        ccol.setContentsMargins(0, 0, 0, 0)
+        ccol.setSpacing(0)
+        cname = QLabel("纯色背景")
+        cname.setObjectName("H2")
+        csub = QLabel("点击色块打开取色器")
+        csub.setObjectName("Sub")
+        ccol.addWidget(cname)
+        ccol.addWidget(csub)
+        ch.addLayout(ccol, 1)
+        self._bg_color_swatch = QLabel()
+        self._bg_color_swatch.setFixedSize(52, 26)
+        self._bg_color_swatch.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._bg_color_swatch.mousePressEvent = lambda _e: self._choose_bg_color()
+        color_btn = RaisedButton("选择颜色")
+        color_btn.setFixedWidth(104)
+        color_btn.clicked.connect(self._choose_bg_color)
+        ch.addWidget(self._bg_color_swatch, 0, Qt.AlignmentFlag.AlignVCenter)
+        ch.addWidget(color_btn, 0, Qt.AlignmentFlag.AlignVCenter)
+        bg_sec.lay.addWidget(color_row)
+        bg_sec.add_divider()
+
+        image_row = QWidget()
+        image_row.setFixedHeight(56)
+        ih = QHBoxLayout(image_row)
+        ih.setContentsMargins(0, 4, 0, 4)
+        ih.setSpacing(10)
+        icol = QVBoxLayout()
+        icol.setContentsMargins(0, 0, 0, 0)
+        icol.setSpacing(0)
+        iname = QLabel("图片背景")
+        iname.setObjectName("H2")
+        self._bg_image_label = QLabel("未选择图片")
+        self._bg_image_label.setObjectName("Sub")
+        icol.addWidget(iname)
+        icol.addWidget(self._bg_image_label)
+        ih.addLayout(icol, 1)
+        image_btn = RaisedButton("选择图片…")
+        image_btn.setFixedWidth(104)
+        image_btn.clicked.connect(self._choose_bg_image)
+        clear_btn = RaisedButton("清除")
+        clear_btn.setFixedWidth(72)
+        clear_btn.clicked.connect(self._clear_bg_image)
+        ih.addWidget(image_btn, 0, Qt.AlignmentFlag.AlignVCenter)
+        ih.addWidget(clear_btn, 0, Qt.AlignmentFlag.AlignVCenter)
+        bg_sec.lay.addWidget(image_row)
+
+        self._bg_dim_slider = self._add_slider_row(
+            bg_sec, "背景压暗", "0 最亮 · 100 最暗，自动对比度会叠加", 0, 100, 45
+        )
+        self._bg_dim_slider.valueChanged.connect(self._on_backdrop_control)
+
         self._grid.set_placements(
             {
                 4: [
                     (float_sec, 0, 0, 2, 2),
                     (game_sec, 0, 2, 2, 2),
                     (custom_sec, 2, 0, 1, 4),
+                    (bg_sec, 3, 0, 1, 4),
                 ],
                 2: [
                     (float_sec, 0, 0, 2, 1),
                     (game_sec, 0, 1, 2, 1),
                     (custom_sec, 2, 0, 1, 2),
+                    (bg_sec, 3, 0, 1, 2),
                 ],
                 1: [
                     (float_sec, 0, 0, 2, 1),
                     (game_sec, 2, 0, 2, 1),
                     (custom_sec, 4, 0, 2, 1),
+                    (bg_sec, 6, 0, 2, 1),
                 ],
             }
         )
@@ -273,6 +372,67 @@ class SettingsWindow(QDialog):
         self._mode_combo.setCurrentIndex(mode_index if mode_index >= 0 else 0)
         self._poll_slider.setValue(int(s.game_poll_seconds))
         self._custom_edit.setText("\n".join(s.game_custom or []))
+        self._bg_color = str(getattr(s, "background_color", "#0b1322") or "#0b1322")
+        self._bg_image = str(getattr(s, "background_image", "") or "")
+        mode_index = self._bg_combo.findData(getattr(s, "background_mode", "night"))
+        self._bg_combo.setCurrentIndex(mode_index if mode_index >= 0 else 0)
+        self._bg_dim_slider.setValue(int(getattr(s, "background_dim", 45)))
+        self._refresh_backdrop_preview()
+
+    # ---------------------------------------------------------- 背景自定义
+    def _refresh_backdrop_preview(self) -> None:
+        color = getattr(self, "_bg_color", "#0b1322")
+        self._bg_color_swatch.setStyleSheet(
+            f"background: {color}; border: 1px solid rgba(255,255,255,0.35);"
+            "border-radius: 13px;"
+        )
+        path = getattr(self, "_bg_image", "")
+        self._bg_image_label.setText(path or "未选择图片")
+        self._bg_image_label.setToolTip(path)
+
+    def _sync_backdrop(self) -> bool:
+        s = self.settings
+        new = (
+            self._bg_combo.currentData() or "night",
+            getattr(self, "_bg_color", "#0b1322"),
+            getattr(self, "_bg_image", ""),
+            int(self._bg_dim_slider.value()),
+        )
+        old = (
+            getattr(s, "background_mode", "night"),
+            getattr(s, "background_color", "#0b1322"),
+            getattr(s, "background_image", ""),
+            getattr(s, "background_dim", 45),
+        )
+        s.background_mode, s.background_color, s.background_image, s.background_dim = new
+        self._refresh_backdrop_preview()
+        return new != old
+
+    def _emit_backdrop_if_changed(self) -> None:
+        if self._sync_backdrop():
+            self.backdropChanged.emit()
+
+    def _on_backdrop_control(self, *_args) -> None:
+        self._emit_backdrop_if_changed()
+
+    def _choose_bg_color(self) -> None:
+        initial = QColor(getattr(self, "_bg_color", "#0b1322"))
+        color = QColorDialog.getColor(initial, self, "选择背景颜色")
+        if color.isValid():
+            self._bg_color = color.name()
+            self._emit_backdrop_if_changed()
+
+    def _choose_bg_image(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self, "选择背景图片", "", "图片文件 (*.png *.jpg *.jpeg *.bmp *.webp)"
+        )
+        if path:
+            self._bg_image = path
+            self._emit_backdrop_if_changed()
+
+    def _clear_bg_image(self) -> None:
+        self._bg_image = ""
+        self._emit_backdrop_if_changed()
 
     # ---------------------------------------------------------- 进程快捷添加
     def _pick_process(self) -> None:
@@ -310,6 +470,7 @@ class SettingsWindow(QDialog):
     def collect(self) -> None:
         """把当前界面值写回 settings 并发出即时生效信号。"""
         s = self.settings
+        self._emit_backdrop_if_changed()
         s.float_width = int(self._width_slider.value())
         s.float_opacity = int(self._opacity_slider.value())
         s.float_show_heart = bool(self._heart_switch.isChecked())

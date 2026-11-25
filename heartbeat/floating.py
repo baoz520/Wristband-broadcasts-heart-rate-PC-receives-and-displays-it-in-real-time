@@ -90,7 +90,10 @@ class FloatingWindow(QWidget):
         root.setContentsMargins(10, 10, 10, 10)
         root.setSpacing(0)
 
-        self._panel = BentoCard(self, object_name="FloatPanel", radius=24.0)
+        # 悬浮窗不要外阴影：玻璃面板本身已经足够，阴影只会弄脏桌面背景。
+        self._panel = BentoCard(
+            self, object_name="FloatPanel", radius=24.0, shadow=False
+        )
         root.addWidget(self._panel)
 
         lay = QHBoxLayout(self._panel)

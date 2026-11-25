@@ -6,7 +6,9 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Property, QPointF, QRectF, QTimer, Qt, Signal
+from PySide6.QtCore import (
+    Property, QEasingCurve, QPointF, QPropertyAnimation, QRectF, QTimer, Qt, Signal,
+)
 from PySide6.QtGui import (
     QBrush,
     QColor,
@@ -26,6 +28,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .backdrop import Backdrop
 from .theme import (
     CHAMPAGNE,
     CORAL,
@@ -47,6 +50,7 @@ from .widgets import (
     draw_raised,
     draw_recessed,
     mix_color,
+    paint_liquid_glass,
     rgba,
 )
 
@@ -352,26 +356,12 @@ class BentoRootPanel(RootPanel):
         )
         p.drawPixmap(QPointF(rect.x() - pad, rect.y() - pad), shadow)
 
-        # 夜景底 + 三枚大半径柔光斑：玻璃必须有东西可模糊
+        # 背景层：默认夜景光斑，或用户自选的纯色 / 图片（含自动对比度暗罩）
         p.save()
         clip = QPainterPath()
         clip.addRoundedRect(rect, radius, radius)
         p.setClipPath(clip)
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QColor(NIGHT))
-        p.drawRect(rect)
-
-        base_r = max(rect.width(), rect.height())
-        for cx, cy, scale, color, alpha in (
-            (rect.right() * 0.92, rect.top() + rect.height() * 0.06, 0.85, MOON_STEEL, 96),
-            (rect.left() + rect.width() * 0.04, rect.bottom() - rect.height() * 0.04, 0.72, CHAMPAGNE, 60),
-            (rect.center().x(), rect.bottom() + rect.height() * 0.12, 0.60, MOONLIGHT, 52),
-        ):
-            grad = QRadialGradient(QPointF(cx, cy), base_r * scale)
-            grad.setColorAt(0.0, rgba(color, alpha))
-            grad.setColorAt(1.0, rgba(color, 0))
-            p.setBrush(QBrush(grad))
-            p.drawRect(rect)
+        Backdrop.paint(p, rect)
         p.restore()
 
         # 玻璃边界：1px 白 15% + 顶边白高光 + 底边暗缘
@@ -395,7 +385,26 @@ class BentoRootPanel(RootPanel):
 
 
 class CloseCard(QFrame):
-    """玻璃弹窗面板：夜钢半透底 + 8% 白填充 + 三层光。"""
+    """液态玻璃弹窗面板：与全局背景同源，带流动高光和曲面边缘光。"""
+
+    flow = Property(float, lambda self: self._flow, lambda self, v: self._set_flow(v))
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self._flow = 0.0
+        self._flow_anim = QPropertyAnimation(self, b"flow", self)
+        self._flow_anim.setDuration(7200)
+        self._flow_anim.setStartValue(0.0)
+        self._flow_anim.setEndValue(1.0)
+        self._flow_anim.setEasingCurve(QEasingCurve.Type.Linear)
+        self._flow_anim.setLoopCount(-1)
+        self._flow_anim.start()
+
+    def _set_flow(self, value: float) -> None:
+        value = max(0.0, min(1.0, float(value)))
+        if value != self._flow:
+            self._flow = value
+            self.update()
 
     def paintEvent(self, event) -> None:  # noqa: N802
         p = QPainter(self)
@@ -405,41 +414,16 @@ class CloseCard(QFrame):
             p.end()
             return
         rect = QRectF(0.5, 0.5, w - 1.0, h - 1.0)
-        shadow, pad = blurred_shape(
-            w - 2, h - 2, 24, 0, 16, 40, NIGHT_DEEP, 120, hollow=True
-        )
-        p.drawPixmap(QPointF(rect.x() - pad, rect.y() - pad), shadow)
 
+        # 背景先于玻璃绘制，换背景时弹窗与主界面保持一致。
+        p.save()
         clip = QPainterPath()
         clip.addRoundedRect(rect, 24, 24)
-        p.save()
         p.setClipPath(clip)
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(rgba(NIGHT_STEEL, 225))
-        p.drawRect(rect)
-        glow = QRadialGradient(QPointF(rect.right(), rect.top()), max(w, h) * 0.9)
-        glow.setColorAt(0.0, rgba(CHAMPAGNE, 44))
-        glow.setColorAt(1.0, rgba(CHAMPAGNE, 0))
-        p.setBrush(QBrush(glow))
-        p.drawRect(rect)
-        p.setBrush(rgba(GLASS_WHITE, 20))
-        p.drawRect(rect)
+        Backdrop.paint(p, rect)
         p.restore()
 
-        p.setPen(QPen(rgba(GLASS_WHITE, 48), 1.0))
-        p.setBrush(Qt.BrushStyle.NoBrush)
-        p.drawRoundedRect(rect, 24, 24)
-        inset = rect.adjusted(2, 2, -2, -2)
-        p.setPen(QPen(rgba(GLASS_WHITE, 56), 1.0))
-        p.drawLine(
-            QPointF(inset.left() + 12, inset.top()),
-            QPointF(inset.right() - 12, inset.top()),
-        )
-        p.setPen(QPen(rgba(NIGHT_DEEP, 110), 1.0))
-        p.drawLine(
-            QPointF(inset.left() + 12, inset.bottom()),
-            QPointF(inset.right() - 12, inset.bottom()),
-        )
+        paint_liquid_glass(p, rect, 24.0, flow=self._flow, shadow=True)
         p.end()
 
 

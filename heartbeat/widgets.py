@@ -57,6 +57,7 @@ from .theme import (
     MOON_STEEL,
     MOONLIGHT,
     MUTED,
+    NIGHT,
     NIGHT_DEEP,
     NIGHT_STEEL,
     ZONE_COLORS,
@@ -222,6 +223,92 @@ def draw_recessed(painter: QPainter, rect: QRectF, radius: float, *, depth: floa
     painter.drawRoundedRect(rect.adjusted(0.5, 0.5, -0.5, -0.5), radius, radius)
 
 
+def paint_liquid_glass(
+    painter: QPainter,
+    rect: QRectF,
+    radius: float,
+    *,
+    hover: float = 0.0,
+    flow: float = 0.0,
+    anchor: bool = False,
+    shadow: bool = True,
+) -> None:
+    """液态玻璃材质：折射渐变 + 流动高光 + 曲面边缘光。
+
+    与旧版平铺白填充不同，这里让光线沿对角线缓慢流过整块玻璃，
+    并用渐变描边模拟厚透镜的折射边缘。hover 只放大同一束光，不引入新颜色。
+    """
+    r = min(float(radius), rect.width() / 2.0, rect.height() / 2.0)
+    hv = max(0.0, min(1.0, float(hover)))
+    flow = max(0.0, min(1.0, float(flow)))
+
+    if shadow:
+        shadow_pm, pad = blurred_shape(
+            max(1, int(rect.width())), max(1, int(rect.height())), int(r),
+            0, 16, int(40 + 24 * hv), NIGHT_DEEP, int(88 + 16 * hv), hollow=True,
+        )
+        painter.drawPixmap(QPointF(rect.x() - pad, rect.y() - pad), shadow_pm)
+
+    painter.save()
+    clip = QPainterPath()
+    clip.addRoundedRect(rect, r, r)
+    painter.setClipPath(clip)
+    painter.setPen(Qt.PenStyle.NoPen)
+
+    if anchor:
+        painter.setBrush(QColor(NIGHT_DEEP))
+        painter.drawRect(rect)
+        glow = QRadialGradient(
+            rect.right(), rect.top(), max(1.0, rect.width() * 0.95)
+        )
+        glow.setColorAt(0.0, rgba(CHAMPAGNE, 52 + int(18 * hv)))
+        glow.setColorAt(1.0, rgba(CHAMPAGNE, 0))
+        painter.setBrush(glow)
+        painter.drawRect(rect)
+    else:
+        base = QLinearGradient(rect.topLeft(), rect.bottomRight())
+        base.setColorAt(0.0, rgba(GLASS_WHITE, int(30 + 20 * hv)))
+        base.setColorAt(0.42, rgba(GLASS_WHITE, int(13 + 12 * hv)))
+        base.setColorAt(0.72, rgba(MOON_STEEL, int(14 + 8 * hv)))
+        base.setColorAt(1.0, rgba(GLASS_WHITE, int(24 + 16 * hv)))
+        painter.setBrush(base)
+        painter.drawRect(rect)
+
+    # 一条缓慢扫过的白色光带，就是“液态”的来源
+    band = max(48.0, rect.width() * 0.42)
+    x = rect.left() + (rect.width() + band) * flow - band
+    sheen = QLinearGradient(QPointF(x, rect.top()), QPointF(x + band, rect.bottom()))
+    sheen.setColorAt(0.0, rgba(GLASS_WHITE, 0))
+    sheen.setColorAt(0.5, rgba(GLASS_WHITE, int(18 + 20 * hv)))
+    sheen.setColorAt(1.0, rgba(GLASS_WHITE, 0))
+    painter.setBrush(sheen)
+    painter.drawRect(rect)
+    painter.restore()
+
+    # 曲面边缘：左上亮、右下冷，像一块有厚度的透镜
+    edge = QLinearGradient(rect.topLeft(), rect.bottomRight())
+    edge.setColorAt(0.0, rgba(GLASS_WHITE, int(66 + 28 * hv)))
+    edge.setColorAt(0.5, rgba(GLASS_WHITE, int(30 + 20 * hv)))
+    edge.setColorAt(1.0, rgba(MOON_STEEL, int(48 + 20 * hv)))
+    painter.setPen(QPen(QBrush(edge), 1.1))
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    painter.drawRoundedRect(rect.adjusted(0.6, 0.6, -0.6, -0.6), r, r)
+
+    inset = rect.adjusted(1.5, 1.5, -1.5, -1.5)
+    ex = r * 0.45
+    if inset.width() > ex * 2:
+        painter.setPen(QPen(rgba(GLASS_WHITE, int(62 + 26 * hv)), 1.0))
+        painter.drawLine(
+            QPointF(inset.left() + ex, inset.top()),
+            QPointF(inset.right() - ex, inset.top()),
+        )
+        painter.setPen(QPen(rgba(NIGHT_DEEP, 105), 1.0))
+        painter.drawLine(
+            QPointF(inset.left() + ex, inset.bottom()),
+            QPointF(inset.right() - ex, inset.bottom()),
+        )
+
+
 def heart_path(rect: QRectF) -> QPainterPath:
     """在给定矩形内构造一个心形路径。"""
     x, y, w, h = rect.x(), rect.y(), rect.width(), rect.height()
@@ -260,10 +347,53 @@ def make_heart_pixmap(size: int = 64, on_dark: bool = False) -> QPixmap:
     return pm
 
 
+def make_app_pixmap(size: int = 256) -> QPixmap:
+    """与 EXE 图标一致：深蓝圆角底 + 香槟金心形 + 心电脉搏。"""
+    pm = QPixmap(size, size)
+    pm.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+    outer = QRectF(size * 0.035, size * 0.035, size * 0.93, size * 0.93)
+    p.setPen(QPen(QColor(CHAMPAGNE), max(1.0, size * 0.019)))
+    p.setBrush(QColor(NIGHT))
+    p.drawRoundedRect(outer, size * 0.22, size * 0.22)
+
+    inner = QRectF(size * 0.075, size * 0.075, size * 0.85, size * 0.85)
+    p.setPen(QPen(rgba(GLASS_WHITE, 34), max(1.0, size * 0.007)))
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    p.drawRoundedRect(inner, size * 0.19, size * 0.19)
+
+    heart = QRectF(size * 0.18, size * 0.16, size * 0.64, size * 0.67)
+    grad = QLinearGradient(heart.topLeft(), heart.bottomLeft())
+    grad.setColorAt(0.0, QColor("#ffdc96"))
+    grad.setColorAt(1.0, QColor(CHAMPAGNE))
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(grad)
+    p.drawPath(heart_path(heart))
+
+    points = [
+        (0.19, 0.56), (0.34, 0.56), (0.40, 0.47), (0.46, 0.65),
+        (0.53, 0.41), (0.60, 0.56), (0.81, 0.56),
+    ]
+    path = QPainterPath()
+    path.moveTo(size * points[0][0], size * points[0][1])
+    for x, y in points[1:]:
+        path.lineTo(size * x, size * y)
+    pen = QPen(QColor(NIGHT_DEEP), max(2.0, size * 0.043))
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+    p.setPen(pen)
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    p.drawPath(path)
+    p.end()
+    return pm
+
+
 def make_app_icon() -> QIcon:
     icon = QIcon()
     for s in (16, 24, 32, 48, 64, 128, 256):
-        icon.addPixmap(make_heart_pixmap(s, on_dark=True))
+        icon.addPixmap(make_app_pixmap(s))
     return icon
 
 
@@ -1048,12 +1178,13 @@ class SoftCard(QFrame):
 
 
 class BentoCard(SoftCard):
-    """玻璃面板：8% 白填充 + 40px 模糊 + 三层光 + 24px 圆角。
+    """液态玻璃面板：折射渐变 + 流动高光 + 曲面边缘光。
 
-    与基类 SoftCard 的区别：独立绘制完整的玻璃材质（外层深阴影 / 顶边白
-    高光 / 底边暗缘），hover 500ms 内填充升到 14%、描边升到 30%、上浮 2px。
-    锚点卡用深墨底 + 香槟金微光，保持全站唯一强调色纪律。
+    hover 500ms 内同一束光增强、整块上浮 2px；锚点卡仍是深墨底 +
+    香槟金微光。shadow=False 用于悬浮窗等不需要外阴影的场景。
     """
+
+    flow = Property(float, lambda self: self._flow, lambda self, v: self._set_flow(v))
 
     def __init__(
         self,
@@ -1061,11 +1192,29 @@ class BentoCard(SoftCard):
         object_name: str = "BentoCard",
         radius: float = 24.0,
         anchor: bool | str = False,
+        shadow: bool = True,
     ):
         super().__init__(parent, object_name=object_name, radius=radius)
         self._anchor = anchor
+        self._shadow = bool(shadow)
         # 玻璃规范：500ms 慢过渡，OutCubic 起手快、收尾稳
         self._hover_anim.setDuration(500)
+        self._flow = 0.0
+        self._flow_anim = QPropertyAnimation(self, b"flow", self)
+        self._flow_anim.setDuration(7200)
+        self._flow_anim.setStartValue(0.0)
+        self._flow_anim.setEndValue(1.0)
+        self._flow_anim.setEasingCurve(QEasingCurve.Type.Linear)
+        self._flow_anim.setLoopCount(-1)
+        # 每张卡错开相位，避免整屏高光同步扫过
+        self._flow_anim.setCurrentTime((id(self) % 97) * 74)
+        self._flow_anim.start()
+
+    def _set_flow(self, value: float) -> None:
+        value = max(0.0, min(1.0, float(value)))
+        if value != self._flow:
+            self._flow = value
+            self.update()
 
     @property
     def is_anchor(self) -> bool:
@@ -1087,55 +1236,15 @@ class BentoCard(SoftCard):
         pad = 12.0
         lift = 2.0 * hv
         rect = QRectF(pad, pad + lift, max(1.0, w - pad * 2), max(1.0, h - pad * 2))
-        r = min(self._radius, rect.width() / 2.0, rect.height() / 2.0)
 
-        # 第一层：外层深阴影 0 16px 40px，hover 扩散到 64px 档
-        shadow, spad = blurred_shape(
-            int(rect.width()), int(rect.height()), int(r),
-            0, 16, int(40 + 24 * hv), NIGHT_DEEP, int(88 + 16 * hv), hollow=True,
+        paint_liquid_glass(
+            p, rect, self._radius,
+            hover=hv, flow=self._flow,
+            anchor=bool(self._anchor), shadow=self._shadow,
         )
-        p.drawPixmap(QPointF(rect.x() - spad, rect.y() - spad), shadow)
-
-        if self._anchor:
-            # 深墨锚点卡 + 香槟金微光晕（不是第二强调色，仍是同一束光）
-            p.setPen(Qt.PenStyle.NoPen)
-            p.setBrush(QColor(NIGHT_DEEP))
-            p.drawRoundedRect(rect, r, r)
-            glow = QRadialGradient(
-                rect.right(), rect.top(), max(1.0, rect.width() * 0.95)
-            )
-            glow.setColorAt(0.0, rgba(CHAMPAGNE, 52))
-            glow.setColorAt(1.0, rgba(CHAMPAGNE, 0))
-            p.save()
-            clip = QPainterPath()
-            clip.addRoundedRect(rect, r, r)
-            p.setClipPath(clip)
-            p.setBrush(QBrush(glow))
-            p.drawRect(rect)
-            p.restore()
-            p.setPen(QPen(rgba(CHAMPAGNE, int(48 + 30 * hv)), 1.2))
-            p.setBrush(Qt.BrushStyle.NoBrush)
-            p.drawRoundedRect(rect.adjusted(0.6, 0.6, -0.6, -0.6), r, r)
-        else:
-            # 第二层：8% → 14% 玻璃填充 + 15% → 30% 白描边
-            p.setPen(QPen(rgba(GLASS_WHITE, int(38 + 38 * hv)), 1.0))
-            p.setBrush(rgba(GLASS_WHITE, int(20 + 15 * hv)))
-            p.drawRoundedRect(rect, r, r)
-            # 第三层：顶边白色内高光 + 底边深色内暗缘
-            inset = rect.adjusted(1.5, 1.5, -1.5, -1.5)
-            ex = r * 0.45
-            if inset.width() > ex * 2:
-                p.setPen(QPen(rgba(GLASS_WHITE, int(56 + 25 * hv)), 1.0))
-                p.drawLine(
-                    QPointF(inset.left() + ex, inset.top()),
-                    QPointF(inset.right() - ex, inset.top()),
-                )
-                p.setPen(QPen(rgba(NIGHT_DEEP, 90), 1.0))
-                p.drawLine(
-                    QPointF(inset.left() + ex, inset.bottom()),
-                    QPointF(inset.right() - ex, inset.bottom()),
-                )
         p.end()
+        return
+
 
 
 class BentoGrid(QWidget):

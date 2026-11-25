@@ -18,7 +18,7 @@ sys.path.insert(0, ROOT)
 from PySide6.QtCore import QEvent, Qt  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
-from heartbeat.chrome import CloseDialog, TitleButton  # noqa: E402
+from heartbeat.chrome import CloseCard, CloseDialog, TitleButton  # noqa: E402
 from heartbeat.config import Settings  # noqa: E402
 from heartbeat.main_window import MainWindow  # noqa: E402
 from heartbeat.theme import apply_theme  # noqa: E402
@@ -63,10 +63,16 @@ def main() -> None:
     try:
         settings.close_prompt_enabled = False
         settings.close_default_action = "quit"
+        settings.background_mode = "solid"
+        settings.background_color = "#123456"
+        settings.background_dim = 72
         settings.save()
         reloaded = Settings.load()
         assert reloaded.close_prompt_enabled is False
         assert reloaded.close_default_action == "quit"
+        assert reloaded.background_mode == "solid"
+        assert reloaded.background_color == "#123456"
+        assert reloaded.background_dim == 72
     finally:
         Settings.path = original_path
         temp_path.unlink(missing_ok=True)
@@ -111,6 +117,12 @@ def main() -> None:
     assert spark.metaObject().indexOfProperty("reveal") >= 0, "折线描绘属性未注册"
     spark.set_history([(1.0, 70), (2.0, 80)])
     assert spark._reveal_anim.endValue() == 1.0, "历史曲线未触发描绘动画"
+
+    from heartbeat.widgets import BentoCard
+    card = BentoCard()
+    assert card.metaObject().indexOfProperty("flow") >= 0, "液态玻璃流光属性未注册"
+    assert card._flow_anim.loopCount() == -1, "液态玻璃流光未循环"
+    assert CloseCard().metaObject().indexOfProperty("flow") >= 0, "关闭弹窗未使用液态玻璃"
 
     # 5. 折线图：历史样本须以历史模式完整保留（不受 60 秒实时窗口限制）
     import time
@@ -293,6 +305,7 @@ def main() -> None:
     controller.floating.set_game_info("原神", bpm=88, low=80, high=95)
     assert controller.floating._game_transparent, "隐藏背景模式未生效"
     assert controller.floating._panel._transparent, "悬浮窗底板未隐藏"
+    assert controller.floating._panel._shadow is False, "悬浮窗仍然绘制外阴影"
     controller.floating.set_game_info("")
     assert not controller.floating._game_transparent, "退出游戏后背景未恢复"
 

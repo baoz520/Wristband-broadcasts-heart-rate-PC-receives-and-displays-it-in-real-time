@@ -48,6 +48,12 @@ class Settings:
     game_float_mode: str = "transparent"    # 游戏中悬浮窗：normal / transparent / hidden
     game_poll_seconds: int = 4              # 检测轮询间隔
 
+    # 背景自定义
+    background_mode: str = "night"          # night / solid / image
+    background_color: str = "#0b1322"       # 纯色背景
+    background_image: str = ""              # 图片背景路径
+    background_dim: int = 45                # 压暗强度 0-100，保证半透明 UI 可读
+
     @classmethod
     def path(cls) -> Path:
         return config_dir() / "settings.json"

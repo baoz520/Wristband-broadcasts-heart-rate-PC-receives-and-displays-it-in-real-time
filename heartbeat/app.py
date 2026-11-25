@@ -10,6 +10,7 @@ from PySide6.QtCore import QObject, QTimer
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
+from .backdrop import Backdrop
 from .ble import BleWorker
 from .config import Settings
 from .floating import FloatingWindow
@@ -63,6 +64,12 @@ class Controller(QObject):
         super().__init__(app)
         self.app = app
         self.settings = Settings.load()
+        Backdrop.configure(
+            getattr(self.settings, "background_mode", "night"),
+            getattr(self.settings, "background_color", "#0b1322"),
+            getattr(self.settings, "background_image", ""),
+            getattr(self.settings, "background_dim", 45),
+        )
         self.settings_saved_on_exit = False
 
         self.window = MainWindow(self.settings)
@@ -273,6 +280,7 @@ class Controller(QObject):
             sw.gameShowFloatChanged.connect(self._on_game_show_float_changed)
             sw.gameFloatModeChanged.connect(self._on_game_float_mode_changed)
             sw.gamePollChanged.connect(self._on_game_poll_changed)
+            sw.backdropChanged.connect(self._on_backdrop_changed)
         else:
             # 重新打开时把当前设置同步回界面
             self._settings_window._load_values()
@@ -615,6 +623,17 @@ class Controller(QObject):
     def _on_game_poll_changed(self, seconds: int) -> None:
         if self.settings.game_detect_enabled:
             self._game_timer.start(max(2, int(seconds)) * 1000)
+        self._save_settings()
+
+    def _on_backdrop_changed(self) -> None:
+        """背景切换后重配全局背景并刷新所有半透明界面。"""
+        Backdrop.configure(
+            self.settings.background_mode,
+            self.settings.background_color,
+            self.settings.background_image,
+            self.settings.background_dim,
+        )
+        Backdrop.refresh_all()
         self._save_settings()
 
     def _check_game(self) -> None:
