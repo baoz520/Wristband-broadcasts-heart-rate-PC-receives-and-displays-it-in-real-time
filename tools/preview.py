@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from PySide6.QtGui import QColor, QPainter, QPixmap  # noqa: E402
+from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from heartbeat.ble import DeviceInfo  # noqa: E402
@@ -77,6 +78,7 @@ def main() -> None:
         window.append_log(msg)
 
     window.layout().activate()
+    QTest.qWait(320)  # 等待窗口淡入结束
     app.processEvents()
     app.processEvents()
     window.grab().save(str(OUT / "main.png"))
@@ -94,6 +96,7 @@ def main() -> None:
     floating.set_hr(78, "心率服务")
     floating.set_locked(False)
     floating.show()
+    QTest.qWait(260)
     app.processEvents()
 
     canvas = QPixmap(640, 340)
@@ -164,6 +167,7 @@ def main() -> None:
     history = HistoryWindow(demo_sessions)
     history.show()
     history.layout().activate()
+    QTest.qWait(760)  # 等窗口淡入与历史折线描绘完成
     app.processEvents()
     app.processEvents()
     history.grab().save(str(OUT / "history.png"))
@@ -172,6 +176,7 @@ def main() -> None:
     settings_win = SettingsWindow(settings)
     settings_win.show()
     settings_win.layout().activate()
+    QTest.qWait(320)
     app.processEvents()
     app.processEvents()
     settings_win.grab().save(str(OUT / "settings.png"))
@@ -191,6 +196,7 @@ def main() -> None:
         picker = ProcessPickerDialog(settings_win, ["cs2.exe"])
         picker.show()
         picker.layout().activate()
+        QTest.qWait(320)
         app.processEvents()
         app.processEvents()
         picker.grab().save(str(OUT / "process_picker.png"))

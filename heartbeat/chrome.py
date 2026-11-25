@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Property, QPointF, QRectF, Qt, Signal
+from PySide6.QtCore import Property, QPointF, QRectF, QTimer, Qt, Signal
 from PySide6.QtGui import (
     QBrush,
     QColor,
@@ -40,6 +40,7 @@ from .theme import (
 from .widgets import (
     BrandMark,
     HoverAnimator,
+    animate_show,
     RaisedButton,
     SoftCheckBox,
     blurred_shape,
@@ -257,6 +258,13 @@ class RootPanel(QWidget):
     def addLayout(self, layout) -> None:  # noqa: N802
         self._layout.addLayout(layout)
 
+    def showEvent(self, event) -> None:  # noqa: N802
+        super().showEvent(event)
+        window = self.window()
+        if window is not None:
+            # 延后一拍，等窗口真正显示后再淡入，避免首帧闪一下。
+            QTimer.singleShot(0, lambda: animate_show(window))
+
     def paintEvent(self, event) -> None:  # noqa: N802
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -267,7 +275,7 @@ class RootPanel(QWidget):
         )
         draw_raised(
             p, rect, 24.0,
-            distance=10.0, blur=20.0, grey_alpha=155, white_alpha=205, rim=True,
+            distance=10.0, blur=20.0, grey_alpha=110, white_alpha=205, rim=True,
         )
         p.end()
 
@@ -340,7 +348,7 @@ class BentoRootPanel(RootPanel):
         # 外层深阴影
         shadow, pad = blurred_shape(
             int(rect.width()), int(rect.height()), int(radius),
-            0, 16, 40, NIGHT_DEEP, 150, hollow=True,
+            0, 16, 40, NIGHT_DEEP, 108, hollow=True,
         )
         p.drawPixmap(QPointF(rect.x() - pad, rect.y() - pad), shadow)
 
@@ -398,7 +406,7 @@ class CloseCard(QFrame):
             return
         rect = QRectF(0.5, 0.5, w - 1.0, h - 1.0)
         shadow, pad = blurred_shape(
-            w - 2, h - 2, 24, 0, 16, 40, NIGHT_DEEP, 170, hollow=True
+            w - 2, h - 2, 24, 0, 16, 40, NIGHT_DEEP, 120, hollow=True
         )
         p.drawPixmap(QPointF(rect.x() - pad, rect.y() - pad), shadow)
 
@@ -449,6 +457,10 @@ class CloseDialog(QDialog):
         self.remember = False
 
         self._build_ui()
+
+    def showEvent(self, event) -> None:  # noqa: N802
+        super().showEvent(event)
+        QTimer.singleShot(0, lambda: animate_show(self))
 
     def _build_ui(self) -> None:
         outer = QVBoxLayout(self)

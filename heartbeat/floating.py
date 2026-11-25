@@ -5,8 +5,8 @@ from __future__ import annotations
 import time
 from typing import Optional
 
-from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QPainter
+from PySide6.QtCore import QPoint, QTimer, Qt, Signal
+from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
     QApplication,
     QFrame,
@@ -19,8 +19,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .theme import CHAMPAGNE, MOONLIGHT, NIGHT_DEEP, ZONE_COLORS
-from .widgets import BentoCard, PulseHeart, RaisedButton, blurred_shape
+from .theme import CHAMPAGNE, MOONLIGHT, ZONE_COLORS
+from .widgets import BentoCard, PulseHeart, RaisedButton, animate_show
 
 STATE_TEXT = {
     "idle": "未连接",
@@ -390,19 +390,11 @@ class FloatingWindow(QWidget):
             self._device_label.setStyleSheet(f"color: {name_color}; font-size: 9px;")
 
     # ------------------------------------------------------------------ 绘制
-    def paintEvent(self, event) -> None:  # noqa: N802
-        if self._game_transparent:
-            # 隐藏背景模式连外阴影一起去掉，真正"悬浮"在游戏画面上
-            return
-        # 玻璃面板外阴影：深墨 16px / 40px，让悬浮窗从桌面浮起
-        p = QPainter(self)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        pm, pad = blurred_shape(
-            self.width() - 20, self.height() - 20, 24,
-            0, 16, 40, NIGHT_DEEP, 150,
-        )
-        p.drawPixmap(QPointF(10 - pad, 10 - pad), pm)
-        p.end()
+    # 外阴影由 BentoCard 自己绘制，避免窗口级再叠一层造成双阴影。
+
+    def showEvent(self, event) -> None:  # noqa: N802
+        super().showEvent(event)
+        QTimer.singleShot(0, lambda: animate_show(self, 220))
 
     def resizeEvent(self, event) -> None:  # noqa: N802
         self._close.move(self.width() - 34, 16)

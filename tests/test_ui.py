@@ -97,6 +97,21 @@ def main() -> None:
     probe.leaveEvent(QEvent(QEvent.Type.Leave))
     assert probe._hover_anim.endValue() == 0.0
 
+    # 4b. 动效细节：hover、点击微光、开关回弹与历史曲线描绘都必须有独立动画
+    from heartbeat.widgets import HoverAnimator, Sparkline
+
+    assert HoverAnimator.DURATION == 240, "悬停过渡时长未更新"
+    assert probe._flash_anim.duration() == 300, "按钮点击反馈缺失"
+    probe._play_flash()
+    assert probe._flash_anim.endValue() == 0.0, "点击微光未回落"
+    toggle = ToggleSwitch()
+    assert toggle._anim.duration() == 280, "开关回弹动画缺失"
+
+    spark = Sparkline()
+    assert spark.metaObject().indexOfProperty("reveal") >= 0, "折线描绘属性未注册"
+    spark.set_history([(1.0, 70), (2.0, 80)])
+    assert spark._reveal_anim.endValue() == 1.0, "历史曲线未触发描绘动画"
+
     # 5. 折线图：历史样本须以历史模式完整保留（不受 60 秒实时窗口限制）
     import time
 

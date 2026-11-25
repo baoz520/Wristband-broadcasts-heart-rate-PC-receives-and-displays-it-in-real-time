@@ -81,7 +81,7 @@ def blurred_shape(
 ):
     """返回 (模糊后的圆角矩形像素图, 四周留白)，供外阴影使用。
 
-    hollow=True 时只保留轮廓带再模糊，避免实心偏移阴影在圆角处露出亮块。
+    hollow=True 时模糊后挖掉卡片本体，只留下外侧柔影，避免玻璃内部发黑。
     """
     w, h = max(1, int(w)), max(1, int(h))
     pad = int(blur * 2.6 + max(abs(ox), abs(oy))) + 6
@@ -96,16 +96,6 @@ def blurred_shape(
     painter.setBrush(c)
     painter.drawRoundedRect(QRectF(pad + ox, pad + oy, w, h), radius, radius)
 
-    if hollow:
-        band = max(4.0, blur / 2.0)
-        iw, ih = w - band * 2, h - band * 2
-        if iw > 0 and ih > 0:
-            painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Clear)
-            painter.drawRoundedRect(
-                QRectF(pad + ox + band, pad + oy + band, iw, ih),
-                max(0.0, radius - band), max(0.0, radius - band),
-            )
-            painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
     painter.end()
 
     scene = QGraphicsScene()
@@ -120,6 +110,18 @@ def blurred_shape(
     target = QPainter(out)
     scene.render(target)
     target.end()
+
+    if hollow:
+        # 模糊完成后再挖掉卡片本体：外侧保留自然下投的柔影，
+        # 内侧完全透明，不会在玻璃卡片里透出一圈发黑的暗晕。
+        clearer = QPainter(out)
+        clearer.setRenderHint(QPainter.RenderHint.Antialiasing)
+        clearer.setCompositionMode(QPainter.CompositionMode.CompositionMode_Clear)
+        clearer.setPen(Qt.PenStyle.NoPen)
+        clearer.setBrush(QColor(0, 0, 0, 255))
+        clearer.drawRoundedRect(QRectF(pad, pad, w, h), radius, radius)
+        clearer.end()
+
     return out, pad
 
 
@@ -273,7 +275,7 @@ class HoverAnimator:
     ``fade(1.0/0.0)``，paintEvent 读取 ``self.hover`` 做插值。
     """
 
-    DURATION = 180
+    DURATION = 240
 
     @staticmethod
     def setup(owner) -> None:
@@ -304,6 +306,21 @@ class HoverAnimator:
         anim.start()
 
 
+def animate_show(widget: QWidget, duration: int = 260) -> None:
+    """窗口首次出现时淡入，不改变用户自定义的不透明度。"""
+    if widget is None or getattr(widget, "_entry_anim_done", False):
+        return
+    widget._entry_anim_done = True
+    end = widget.windowOpacity()
+    anim = QPropertyAnimation(widget, b"windowOpacity", widget)
+    anim.setDuration(duration)
+    anim.setStartValue(0.0)
+    anim.setEndValue(end)
+    anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+    anim.start()
+    widget._entry_anim = anim
+
+
 class ToggleSwitch(QAbstractButton):
     """玻璃开关：夜景凹槽轨道 + 玻璃旋钮，开启填香槟金。"""
 
@@ -315,8 +332,10 @@ class ToggleSwitch(QAbstractButton):
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._offset = 0.0
         self._anim = QPropertyAnimation(self, b"offset", self)
-        self._anim.setDuration(200)
-        self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._anim.setDuration(280)
+        curve = QEasingCurve(QEasingCurve.Type.OutBack)
+        curve.setOvershoot(1.25)
+        self._anim.setEasingCurve(curve)
         self.toggled.connect(self._animate)
         HoverAnimator.setup(self)
 
@@ -468,6 +487,7 @@ class Sparkline(QWidget):
     """心率折线图：实时模式显示最近 60 秒；历史模式按索引绘制完整历史。"""
 
     WINDOW_SECONDS = 60
+    reveal = Property(float, lambda self: self._reveal, lambda self, v: self._set_reveal(v))
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -475,8 +495,18 @@ class Sparkline(QWidget):
         self._history_mode = False
         self._axis_labels: tuple[str, str, str] = ("−60 秒", "30 秒", "现在")
         self._dark = False
+        self._reveal = 1.0
+        self._reveal_anim = QPropertyAnimation(self, b"reveal", self)
+        self._reveal_anim.setDuration(680)
+        self._reveal_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
         self.setMinimumHeight(96)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+    def _set_reveal(self, value: float) -> None:
+        value = max(0.0, min(1.0, float(value)))
+        if value != self._reveal:
+            self._reveal = value
+            self.update()
 
     def set_dark(self, dark: bool) -> None:
         """在墨黑锚点卡里改用亮色网格与曲线。"""
@@ -511,6 +541,10 @@ class Sparkline(QWidget):
         self._history_mode = True
         self._points = deque(samples)
         self._axis_labels = labels or ("最早", "历史心率", "最新")
+        self._reveal_anim.stop()
+        self._reveal_anim.setStartValue(0.0)
+        self._reveal_anim.setEndValue(1.0)
+        self._reveal_anim.start()
         self.update()
 
     def clear(self) -> None:
@@ -575,6 +609,12 @@ class Sparkline(QWidget):
                 x = max(plot.left(), x)
                 pts.append(QPointF(x, y_of(v)))
 
+        # 历史曲线从左向右描绘；实时曲线保持完整，避免每帧重播动画。
+        p.save()
+        if self._reveal < 1.0:
+            reveal_w = plot.width() * self._reveal
+            p.setClipRect(QRectF(plot.left(), plot.top(), reveal_w, plot.height()))
+
         fill = QPainterPath()
         fill.moveTo(pts[0].x(), plot.bottom())
         for pt in pts:
@@ -605,6 +645,7 @@ class Sparkline(QWidget):
         p.drawEllipse(last, 6.0, 6.0)
         p.setBrush(QColor(CHAMPAGNE))
         p.drawEllipse(last, 3.1, 3.1)
+        p.restore()
 
         p.setPen(QColor(MUTED))
         p.setFont(QFont("Inter", 8))
@@ -755,12 +796,30 @@ class RaisedButton(QPushButton):
     """玻璃按钮：主 CTA 香槟金胶囊，危险操作柔和红，次要按钮玻璃材质。"""
 
     hover = Property(float, HoverAnimator._get, HoverAnimator._set)
+    flash = Property(float, lambda self: self._flash, lambda self, v: self._set_flash(v))
 
     def __init__(self, text: str = "", parent: QWidget | None = None):
         super().__init__(text, parent)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._pressed = False
+        self._flash = 0.0
+        self._flash_anim = QPropertyAnimation(self, b"flash", self)
+        self._flash_anim.setDuration(300)
+        self._flash_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
         HoverAnimator.setup(self)
+
+    def _set_flash(self, value: float) -> None:
+        value = max(0.0, min(1.0, float(value)))
+        if value != self._flash:
+            self._flash = value
+            self.update()
+
+    def _play_flash(self) -> None:
+        self._flash_anim.stop()
+        self._flash_anim.setStartValue(1.0)
+        self._flash_anim.setEndValue(0.0)
+        self._flash_anim.start()
 
     def enterEvent(self, event) -> None:
         HoverAnimator.fade(self, 1.0)
@@ -774,6 +833,7 @@ class RaisedButton(QPushButton):
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
             self._pressed = True
+            self._play_flash()
             self.update()
         # 必须交给 QAbstractButton，否则 clicked 信号不会发出
         super().mousePressEvent(event)
@@ -808,7 +868,7 @@ class RaisedButton(QPushButton):
             p.setBrush(rgba(GLASS_WHITE, 10))
         elif danger:
             p.setPen(QPen(rgba(CORAL, 110), 1.0))
-            p.setBrush(rgba(CORAL, int(28 + 28 * hv)))
+            p.setBrush(rgba(CORAL, int(28 + 28 * hv + 30 * self._flash)))
         elif cta:
             # 香槟金光晕：hover 时扩到 25% 金色，由 hover 属性平滑驱动
             glow, gpad = blurred_shape(
@@ -817,14 +877,20 @@ class RaisedButton(QPushButton):
             )
             p.drawPixmap(QPointF(rect.x() - gpad, rect.y() - gpad), glow)
             gold = QColor(CHAMPAGNE)
-            gold.setAlpha(int(230 + 25 * hv))
+            gold.setAlpha(min(255, int(230 + 25 * hv)))
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(gold)
         else:
             # 次要按钮：8% → 14% 白填充、15% → 30% 白描边
             p.setPen(QPen(rgba(GLASS_WHITE, int(38 + 38 * hv)), 1.0))
-            p.setBrush(rgba(GLASS_WHITE, int(20 + 15 * hv)))
+            p.setBrush(rgba(GLASS_WHITE, int(20 + 15 * hv + 24 * self._flash)))
         p.drawRoundedRect(rect, r, r)
+
+        # 点击瞬间一层极淡白光扫过，300ms 内退去，给出轻盈的触感反馈
+        if self.isEnabled() and self._flash > 0:
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(rgba(GLASS_WHITE, int(42 * self._flash)))
+            p.drawRoundedRect(rect, r, r)
 
         # 玻璃按钮的顶边高光 / 底边暗缘（CTA 是实心胶囊，不需要）
         if not cta and not danger and self.isEnabled() and rect.width() > r * 2:
@@ -839,11 +905,6 @@ class RaisedButton(QPushButton):
                 QPointF(inner.left() + r * 0.45, inner.bottom()),
                 QPointF(inner.right() - r * 0.45, inner.bottom()),
             )
-
-        if self.hasFocus() and self.focusPolicy() != Qt.FocusPolicy.NoFocus:
-            p.setPen(QPen(QColor(CHAMPAGNE), 2))
-            p.setBrush(Qt.BrushStyle.NoBrush)
-            p.drawRoundedRect(rect.adjusted(-3, -3, 3, 3), max(0.0, r + 3), max(0.0, r + 3))
 
         if not self.isEnabled():
             tone = QColor(MOON_STEEL)
@@ -979,7 +1040,7 @@ class SoftCard(QFrame):
             p, rect, r,
             distance=8.0 - 4.0 * hv,
             blur=16.0 - 8.0 * hv,
-            grey_alpha=int(138 + 24 * hv),
+            grey_alpha=int(92 + 18 * hv),
             white_alpha=int(182 + 20 * hv),
             rim=True,
         )
@@ -1031,7 +1092,7 @@ class BentoCard(SoftCard):
         # 第一层：外层深阴影 0 16px 40px，hover 扩散到 64px 档
         shadow, spad = blurred_shape(
             int(rect.width()), int(rect.height()), int(r),
-            0, 16, int(40 + 24 * hv), NIGHT_DEEP, int(128 + 25 * hv), hollow=True,
+            0, 16, int(40 + 24 * hv), NIGHT_DEEP, int(88 + 16 * hv), hollow=True,
         )
         p.drawPixmap(QPointF(rect.x() - spad, rect.y() - spad), shadow)
 
