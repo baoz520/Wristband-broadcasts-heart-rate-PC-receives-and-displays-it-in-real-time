@@ -223,7 +223,7 @@ def main() -> None:
     assert finished.get("min") == 70 and finished.get("max") == 90
 
     # 9. "查看历史数据"按钮必须弹出独立的历史记录窗口，逐条显示会话统计与折线
-    from heartbeat.history_window import HistoryWindow
+    from heartbeat.history_window import HistoryWindow, SessionCard
 
     controller.window._history_button.click()
     app.processEvents()
@@ -231,7 +231,7 @@ def main() -> None:
     assert hw is not None and isinstance(hw, HistoryWindow), "历史记录窗口未创建"
     assert hw.isVisible(), "历史记录窗口未显示"
     # 每条会话一张卡片，含统计条与折线图（若该会话有曲线数据）
-    cards = [w for w in hw.findChildren(SoftCard)]
+    cards = [w for w in hw.findChildren(SessionCard)]
     assert len(cards) == len(controller._sessions), (
         f"历史卡片数量不符: {len(cards)} vs {len(controller._sessions)}"
     )
@@ -425,6 +425,90 @@ def main() -> None:
     probe_grid = BentoGrid()
     assert (probe_grid.columns_for(980), probe_grid.columns_for(720),
             probe_grid.columns_for(400)) == (4, 2, 1), "网格断点不正确"
+
+    # 17. 触发节奏由用户决定：未达阈值 / 持续不足 / 冷却中都不截屏
+    from heartbeat.capture import HighHeartCapture
+
+    trigger = HighHeartCapture()
+    assert not trigger.ready(90, 100, 120, 0, 30)
+    assert trigger.ready(130, 100, 120, 0, 30)
+    assert not trigger.ready(130, 110, 120, 0, 30)
+    assert trigger.ready(130, 140, 120, 0, 30)
+    trigger.reset()
+    assert not trigger.ready(130, 200, 120, 3, 30)
+    assert trigger.ready(130, 203, 120, 3, 30)
+
+    # 18. 设置窗口的截屏阈值 / 持续 / 间隔立即写入配置
+    settings_win._capture_switch.setChecked(True)
+    settings_win._capture_threshold_slider.setValue(140)
+    settings_win._capture_sustain_slider.setValue(2)
+    settings_win._capture_cooldown_slider.setValue(10)
+    assert controller.settings.capture_enabled is True
+    assert controller.settings.capture_threshold == 140
+    assert controller.settings.capture_sustain == 2
+    assert controller.settings.capture_cooldown == 10
+
+    # 19. 状态变化去重；达到阈值时截屏并连同时间戳写入历史
+    probe_events: dict = {"state_events": []}
+    controller._record_state_change(probe_events, "平静", 1)
+    controller._record_state_change(probe_events, "平静", 2)
+    controller._record_state_change(probe_events, "兴奋", 3)
+    assert probe_events["state_events"] == [[1, "平静"], [3, "兴奋"]]
+
+    import heartbeat.app as app_module
+    import time as _time
+
+    shot_image = Path(tempfile.gettempdir()) / "heartbeat_capture_test.png"
+    QImage(80, 50, QImage.Format.Format_RGB32).save(str(shot_image))
+    captured: list[tuple[int, dict]] = []
+    original_capture = app_module.capture_screen
+
+    def fake_capture(bpm: int, **kwargs):
+        captured.append((bpm, kwargs))
+        return {
+            "ts": int(_time.time()),
+            "path": str(shot_image),
+            "bpm": bpm,
+            "state": kwargs.get("state", ""),
+            "device": kwargs.get("device", ""),
+            "session": kwargs.get("session", ""),
+        }
+
+    controller.settings.capture_threshold = 120
+    controller.settings.capture_sustain = 0
+    controller.settings.capture_cooldown = 0
+    controller.settings.screenshot_events = []
+    controller._capture.reset()
+    controller._session = None
+    app_module.capture_screen = fake_capture
+    try:
+        controller._on_heart_rate(90, "心率服务", "AA:BB:CC:DD:EE:FF", "测试手环")
+        controller._on_heart_rate(145, "心率服务", "AA:BB:CC:DD:EE:FF", "测试手环")
+    finally:
+        app_module.capture_screen = original_capture
+    assert len(captured) == 1 and captured[0][0] == 145, "截屏触发条件错误"
+    assert captured[0][1]["state"], "截图未记录当时的状态"
+    session = controller._session
+    assert session is not None and len(session["screenshots"]) == 1, "截图未写入本次会话"
+    assert session["state_events"], "状态变化未写入本次会话"
+    controller._finalize_session()
+    record = controller._sessions[-1]
+    assert record["state_events"] and record["screenshots"], "历史记录缺少状态变化或截图"
+    assert controller.settings.screenshot_events, "截图索引未持久化"
+
+    controller.show_history_window()
+    app.processEvents()
+    hw2 = controller._history_window
+    assert len(hw2._gallery._shots) >= 1, "历史窗口未显示截图画廊"
+    assert not hw2._gallery.isHidden(), "有截图时画廊被隐藏"
+    from PySide6.QtWidgets import QLabel
+
+    state_labels = [w.text() for w in hw2.findChildren(QLabel)]
+    assert any("状态变化" in text for text in state_labels), "历史卡片未显示状态变化"
+    shot_image.unlink(missing_ok=True)
+
+    controller.settings.capture_enabled = False
+    controller._save_settings()
 
     controller.quit()
 

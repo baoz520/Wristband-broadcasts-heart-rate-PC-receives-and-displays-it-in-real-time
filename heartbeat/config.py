@@ -54,6 +54,14 @@ class Settings:
     background_image: str = ""              # 图片背景路径
     background_dim: int = 45                # 压暗强度 0-100，保证半透明 UI 可读
 
+    # 高心率自动截屏：由用户自行设定触发心率与节奏
+    capture_enabled: bool = False           # 是否开启自动截屏
+    capture_threshold: int = 120            # BPM：达到该值才考虑截屏
+    capture_sustain: int = 0                # 持续秒数：0 表示立即截屏
+    capture_cooldown: int = 30              # 两次截屏的最小间隔（秒）
+    capture_dir: str = ""                   # 保存目录，空则使用默认目录
+    screenshot_events: list[dict] = field(default_factory=list)  # 带时间戳的截图索引
+
     @classmethod
     def path(cls) -> Path:
         return config_dir() / "settings.json"
@@ -78,3 +86,13 @@ class Settings:
             )
         except OSError:
             pass
+
+
+def capture_directory(custom: str = "") -> Path:
+    """截屏目录：默认放在配置目录下，始终确保目录存在。"""
+    path = Path(custom).expanduser() if custom else (config_dir() / "captures")
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
+    return path

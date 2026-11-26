@@ -8,11 +8,13 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 
-from PySide6.QtCore import QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QPainter, QPen
+from PySide6.QtCore import QPointF, QRectF, Qt, QUrl, Signal
+from PySide6.QtGui import QColor, QDesktopServices, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QDialog,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QScrollArea,
@@ -22,7 +24,8 @@ from PySide6.QtWidgets import (
 )
 
 from .chrome import BentoRootPanel, TitleBar
-from .theme import GLASS_WHITE, MOON_STEEL, NIGHT_DEEP
+from .hr import STATE_COLORS
+from .theme import CHAMPAGNE, GLASS_WHITE, MOON_STEEL, NIGHT_DEEP
 from .widgets import BentoCard, BentoGrid, RaisedButton, Sparkline, rgba
 
 
@@ -97,6 +100,41 @@ class _StatStrip(QWidget):
             QPointF(inset.right() - 8, inset.bottom()),
         )
         p.end()
+
+
+class ShotThumb(QLabel):
+    """截图缩略图：点击用系统默认看图程序打开原图。"""
+
+    def __init__(self, path: str, width: int = 112, height: int = 72):
+        super().__init__()
+        self._path = str(path or "")
+        self.setFixedSize(width, height)
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setStyleSheet(
+            "border: 1px solid rgba(255,255,255,0.24); border-radius: 10px;"
+            "background: rgba(255,255,255,0.06);"
+        )
+        pixmap = QPixmap(self._path)
+        if not pixmap.isNull():
+            pixmap = pixmap.scaled(
+                width - 6, height - 6,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            self.setPixmap(pixmap)
+        else:
+            self.setText("图片不可用")
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802
+        if self._path:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(self._path))
+        super().mousePressEvent(event)
+
+
+def _shot_caption(shot: dict) -> str:
+    day, hm = _ts_parts(shot.get("ts", 0))
+    return f"{day[5:]} {hm} · {shot.get('bpm', '—')} BPM"
 
 
 class SessionCard(BentoCard):
@@ -185,13 +223,135 @@ class SessionCard(BentoCard):
             placeholder.setFixedHeight(72)
             lay.addWidget(placeholder)
 
+        events = [
+            item for item in (record.get("state_events") or [])
+            if isinstance(item, (list, tuple)) and len(item) >= 2
+        ]
+        if events:
+            parts = []
+            for item in events[-8:]:
+                _, hm = _ts_parts(item[0])
+                label = str(item[1])
+                color = STATE_COLORS.get(label, MOON_STEEL)
+                parts.append(f"{hm} <span style='color:{color};'>{label}</span>")
+            more = " · 更早省略" if len(events) > 8 else ""
+            state_line = QLabel("状态变化 · " + " → ".join(parts) + more)
+            state_line.setObjectName("Sub")
+            state_line.setTextFormat(Qt.TextFormat.RichText)
+            state_line.setWordWrap(True)
+            lay.addWidget(state_line)
+
+        shots = [
+            shot for shot in (record.get("screenshots") or [])
+            if isinstance(shot, dict) and shot.get("path")
+        ]
+        if shots:
+            shot_title = QLabel(f"高心率截屏 · {len(shots)} 张（点击查看原图）")
+            shot_title.setObjectName("Sub")
+            lay.addWidget(shot_title)
+            row = QHBoxLayout()
+            row.setContentsMargins(0, 0, 0, 0)
+            row.setSpacing(10)
+            for shot in shots[-4:]:
+                thumb = ShotThumb(str(shot["path"]))
+                state = str(shot.get("state") or "")
+                thumb.setToolTip(
+                    f"{_shot_caption(shot)}\n{state}\n{shot['path']}"
+                )
+                row.addWidget(thumb, 0)
+            if len(shots) > 4:
+                more_shots = QLabel(f"+{len(shots) - 4}")
+                more_shots.setObjectName("Badge")
+                row.addWidget(more_shots, 0)
+            row.addStretch(1)
+            lay.addLayout(row)
+
+
+class ScreenshotGallery(BentoCard):
+    """历史窗口顶部的高心率截图画廊：按时间倒序展示全部截图。"""
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent, object_name="ScreenshotGallery", radius=24.0)
+        self._shots: list[dict] = []
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(24, 18, 24, 18)
+        lay.setSpacing(12)
+
+        head = QHBoxLayout()
+        head.setContentsMargins(0, 0, 0, 0)
+        title = QLabel("高心率截屏")
+        title.setObjectName("CardTitle")
+        head.addWidget(title, 1)
+        self._count = QLabel("0 张")
+        self._count.setObjectName("Badge")
+        head.addWidget(self._count, 0)
+        folder_btn = RaisedButton("打开目录")
+        folder_btn.setFixedWidth(96)
+        folder_btn.clicked.connect(self._open_folder)
+        head.addWidget(folder_btn, 0)
+        lay.addLayout(head)
+
+        tip = QLabel("点击缩略图查看原图；每张截图都按触发时的心率与时间命名")
+        tip.setObjectName("Sub")
+        lay.addWidget(tip)
+
+        self._grid = QGridLayout()
+        self._grid.setContentsMargins(0, 0, 0, 0)
+        self._grid.setSpacing(12)
+        lay.addLayout(self._grid)
+        self.hide()
+
+    def set_shots(self, shots: list[dict] | None) -> None:
+        while self._grid.count():
+            item = self._grid.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.setParent(None)
+                widget.deleteLater()
+        self._shots = [
+            dict(shot) for shot in (shots or [])
+            if isinstance(shot, dict) and shot.get("path")
+        ]
+        self.setVisible(bool(self._shots))
+        self._count.setText(f"{len(self._shots)} 张")
+        for index, shot in enumerate(reversed(self._shots[-12:])):
+            cell = QWidget()
+            cell_lay = QVBoxLayout(cell)
+            cell_lay.setContentsMargins(0, 0, 0, 0)
+            cell_lay.setSpacing(4)
+            thumb = ShotThumb(str(shot["path"]), 120, 78)
+            thumb.setToolTip(
+                f"{_shot_caption(shot)}\n{shot.get('state', '')}\n{shot['path']}"
+            )
+            cell_lay.addWidget(thumb, 0, Qt.AlignmentFlag.AlignHCenter)
+            caption = QLabel(_shot_caption(shot))
+            caption.setObjectName("Sub")
+            caption.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+            cell_lay.addWidget(caption)
+            self._grid.addWidget(cell, index // 4, index % 4)
+        if len(self._shots) > 12:
+            tail = QLabel(f"还有 {len(self._shots) - 12} 张，可在目录中查看")
+            tail.setObjectName("Sub")
+            self._grid.addWidget(tail, 3, 0, 1, 4)
+
+    def _open_folder(self) -> None:
+        if not self._shots:
+            return
+        path = Path(str(self._shots[-1].get("path", "")))
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(path.parent)))
+
 
 class HistoryWindow(QDialog):
     """历史记录窗口：响应式便当盒网格，显示每次连接的汇总与心率曲线。"""
 
     deleteRequested = Signal(str)
 
-    def __init__(self, sessions: list[dict] | None = None, parent: QWidget | None = None):
+    def __init__(
+        self,
+        sessions: list[dict] | None = None,
+        parent: QWidget | None = None,
+        shots: list[dict] | None = None,
+    ):
         super().__init__(parent)
         self.setWindowTitle("历史记录")
         self.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.FramelessWindowHint)
@@ -202,6 +362,7 @@ class HistoryWindow(QDialog):
         self._cards: list[QWidget] = []
         self._build_ui()
         self.set_sessions(sessions)
+        self.set_shots(shots)
 
     def _build_ui(self) -> None:
         outer = QVBoxLayout(self)
@@ -237,6 +398,8 @@ class HistoryWindow(QDialog):
         body = QVBoxLayout(container)
         body.setContentsMargins(16, 8, 16, 10)
         body.setSpacing(16)
+        self._gallery = ScreenshotGallery(container)
+        body.addWidget(self._gallery)
         # 历史窗口默认 2 栏，最大化后可到 4 栏；间隙与其他窗口统一 16px
         self._cards_lay = BentoGrid(body.parent(), gap=16, wide=1100, medium=520)
         body.addWidget(self._cards_lay)
@@ -316,6 +479,10 @@ class HistoryWindow(QDialog):
                 card.deleteRequested.connect(self.deleteRequested.emit)
                 self._cards.append(card)
         self._relayout()
+
+    def set_shots(self, shots: list[dict] | None) -> None:
+        """刷新高心率截屏画廊；没有截图时画廊自动隐藏。"""
+        self._gallery.set_shots(shots or [])
 
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)

@@ -36,6 +36,41 @@ def main() -> None:
     app = QApplication([])
     apply_theme(app)
 
+    # 演示用高心率截图：不触碰用户真实截图目录
+    shot_path = OUT / "demo_high_hr_capture.png"
+    shot_canvas = QPixmap(480, 300)
+    sp = QPainter(shot_canvas)
+    shot_grad = QLinearGradient(0, 0, 480, 300)
+    shot_grad.setColorAt(0.0, QColor("#2b3242"))
+    shot_grad.setColorAt(1.0, QColor("#101725"))
+    sp.fillRect(shot_canvas.rect(), QBrush(shot_grad))
+    sp.setPen(QColor("#e4b863"))
+    sp.drawText(28, 44, "HEART RATE ALERT")
+    sp.setPen(QColor("#ffffff"))
+    sp.drawText(28, 92, "148 BPM")
+    sp.drawText(28, 128, "状态：兴奋")
+    sp.end()
+    shot_canvas.save(str(shot_path))
+    now_ts = int(time.time())
+    demo_shots = [
+        {
+            "ts": now_ts - 8 * 3600 + 600,
+            "path": str(shot_path),
+            "bpm": 148,
+            "state": "兴奋",
+            "device": "Xiaomi Smart Band 8",
+            "session": f"C8:47:8C:1A:2B:3C|{now_ts - 8 * 3600}",
+        },
+        {
+            "ts": now_ts - 2 * 3600 + 480,
+            "path": str(shot_path),
+            "bpm": 152,
+            "state": "紧张",
+            "device": "Counter-Strike 2",
+            "session": f"game:cs2|{now_ts - 2 * 3600}",
+        },
+    ]
+
     settings = Settings()
     settings.device_management = True
     settings.floating_visible = True
@@ -136,6 +171,13 @@ def main() -> None:
                  72 + int(28 * (i % 9 == 0)) + (i * 7) % 19]
                 for i in range(40)
             ],
+            "state_events": [
+                [now_ts - 8 * 3600, "平静"],
+                [now_ts - 8 * 3600 + 420, "活跃"],
+                [now_ts - 8 * 3600 + 600, "兴奋"],
+                [now_ts - 8 * 3600 + 1080, "恢复中"],
+            ],
+            "screenshots": [demo_shots[0]],
         },
         {
             "address": "F4:12:FA:9D:88:01", "name": "HUAWEI Band 9",
@@ -145,6 +187,10 @@ def main() -> None:
                 [int(time.time() - 26 * 3600) + i * 11, 68 + (i * 11) % 31]
                 for i in range(30)
             ],
+            "state_events": [
+                [now_ts - 26 * 3600, "采集中"],
+                [now_ts - 26 * 3600 + 300, "平静"],
+            ],
         },
         {
             "address": "D4:36:39:AA:10:7F", "name": "Polar H10",
@@ -153,6 +199,10 @@ def main() -> None:
             "series": [
                 [int(time.time() - 50 * 3600) + i * 10, 65 + (i * 5) % 24]
                 for i in range(24)
+            ],
+            "state_events": [
+                [now_ts - 50 * 3600, "平静"],
+                [now_ts - 50 * 3600 + 200, "放松"],
             ],
         },
     ]
@@ -166,8 +216,14 @@ def main() -> None:
             [int(time.time() - 2 * 3600) + i * 8, 90 + (i * 13) % 45]
             for i in range(40)
         ],
+        "state_events": [
+            [now_ts - 2 * 3600, "活跃"],
+            [now_ts - 2 * 3600 + 300, "兴奋"],
+            [now_ts - 2 * 3600 + 480, "紧张"],
+        ],
+        "screenshots": [demo_shots[1]],
     })
-    history = HistoryWindow(demo_sessions)
+    history = HistoryWindow(demo_sessions, shots=demo_shots)
     history.show()
     history.layout().activate()
     QTest.qWait(760)  # 等窗口淡入与历史折线描绘完成
@@ -184,15 +240,19 @@ def main() -> None:
     app.processEvents()
     settings_win.grab().save(str(OUT / "settings.png"))
 
-    # 滚到底部单独展示背景自定义卡片
+    # 分别展示背景自定义与新增的高心率截屏卡片
     settings_scroll = settings_win.findChild(QScrollArea)
     if settings_scroll is not None:
-        settings_scroll.verticalScrollBar().setValue(
-            settings_scroll.verticalScrollBar().maximum()
-        )
+        bar = settings_scroll.verticalScrollBar()
+        bar.setValue(int(bar.maximum() * 0.62))
         QTest.qWait(120)
+        app.processEvents()
         settings_win.grab().save(str(OUT / "settings_background.png"))
-        settings_scroll.verticalScrollBar().setValue(0)
+        bar.setValue(bar.maximum())
+        QTest.qWait(120)
+        app.processEvents()
+        settings_win.grab().save(str(OUT / "settings_capture.png"))
+        bar.setValue(0)
 
     # 进程选择器：用固定假进程渲染，避免截图里出现用户真实进程
     import heartbeat.process_picker as picker_module
@@ -245,7 +305,7 @@ def main() -> None:
     print("saved", OUT / "main.png", OUT / "main_narrow.png", OUT / "floating.png",
           OUT / "floating_game.png", OUT / "history.png", OUT / "settings.png",
           OUT / "process_picker.png", OUT / "settings_background.png",
-          OUT / "main_custom_bg.png",
+          OUT / "settings_capture.png", OUT / "main_custom_bg.png",
           OUT / "history_custom_bg.png", OUT / "close_dialog.png")
 
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import ctypes
 import sys
 import time
+from pathlib import Path
 
 from PySide6.QtCore import QObject, QTimer
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
@@ -12,6 +13,7 @@ from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
 from .backdrop import Backdrop
 from .ble import BleWorker
+from .capture import HighHeartCapture, capture_screen
 from .config import Settings
 from .floating import FloatingWindow
 from .hr import HeartStateTracker
@@ -88,6 +90,9 @@ class Controller(QObject):
         self._sessions: list[dict] = [dict(r) for r in (self.settings.history_sessions or [])]
         self._session: dict | None = None
         self._state_trackers: dict[str, HeartStateTracker] = {}
+        self._capture = HighHeartCapture()
+        if not isinstance(getattr(self.settings, "screenshot_events", None), list):
+            self.settings.screenshot_events = []
         # 游戏检测状态
         self._game_session: dict | None = None   # 当前正在进行的游戏会话
         self._game_pid: int | None = None
@@ -261,11 +266,16 @@ class Controller(QObject):
         if self._history_window is None:
             from .history_window import HistoryWindow
 
-            self._history_window = HistoryWindow(self._sessions, self.window)
+            self._history_window = HistoryWindow(
+                self._sessions,
+                self.window,
+                shots=list(self.settings.screenshot_events),
+            )
             self._history_window.setWindowIcon(self.window.windowIcon())
             self._history_window.deleteRequested.connect(self.delete_session)
         else:
             self._history_window.set_sessions(list(self._sessions))
+            self._history_window.set_shots(list(self.settings.screenshot_events))
         self._history_window.center_on(self.window)
         self._history_window.show()
         self._history_window.raise_()
@@ -296,6 +306,7 @@ class Controller(QObject):
             sw.gameFloatModeChanged.connect(self._on_game_float_mode_changed)
             sw.gamePollChanged.connect(self._on_game_poll_changed)
             sw.backdropChanged.connect(self._on_backdrop_changed)
+            sw.captureSettingsChanged.connect(self._on_capture_settings_changed)
         else:
             # 重新打开时把当前设置同步回界面
             self._settings_window._load_values()
@@ -312,9 +323,22 @@ class Controller(QObject):
         if len(self._sessions) == before:
             return
         self.settings.history_sessions = list(self._sessions)
+        # 归属这条会话的截图一并移除，避免历史里留下无法对应的图片。
+        removed_shots = [
+            shot for shot in self.settings.screenshot_events if shot.get("session") == key
+        ]
+        self.settings.screenshot_events = [
+            shot for shot in self.settings.screenshot_events if shot.get("session") != key
+        ]
+        for shot in removed_shots:
+            try:
+                Path(shot.get("path", "")).unlink(missing_ok=True)
+            except (OSError, TypeError):
+                pass
         self.window.set_sessions(list(self._sessions))
         if self._history_window is not None:
             self._history_window.set_sessions(list(self._sessions))
+            self._history_window.set_shots(list(self.settings.screenshot_events))
         self._save_settings()
         self.window.append_log("已删除一条历史记录")
 
@@ -463,36 +487,8 @@ class Controller(QObject):
         self._save_settings()
 
     # ------------------------------------------------------------------ 回调
-    def _on_heart_rate(self, bpm: int, source: str, address: str, name: str) -> None:
-        self._last_hr_time = time.monotonic()
-
-        # 先写入历史，再用同一条序列算状态，保证判断看到的是最新样本。
-        samples = self._history_by_device.setdefault(address, [])
-        samples.append([int(time.time()), bpm])
-        if len(samples) > 200:
-            del samples[:-200]
-        tracker = self._state_trackers.setdefault(address, HeartStateTracker())
-        state = tracker.update(samples)
-
-        self.window.push_hr(bpm, source, address, name, state=state)
-        self.floating.set_hr(bpm, source, address, name, state=state)
-        self.tray.setToolTip(f"心率监测 · {bpm} BPM · {state.label}")
-        # 游戏运行时把心率记入当前游戏会话
-        if self._game_session is not None:
-            self._record_game_hr(bpm)
-            if self.settings.game_show_on_float:
-                series = self._game_session.get("series") or []
-                vals = [int(x[1]) for x in series if isinstance(x, (list, tuple)) and len(x) >= 2]
-                self.floating.set_game_info(
-                    self._game_name,
-                    bpm=vals[-1] if vals else None,
-                    low=min(vals) if vals else None,
-                    high=max(vals) if vals else None,
-                )
-
-        self.window.set_device_history(address, samples)
-        self.floating.set_device_history(address, samples)
-
+    def _ensure_session(self, address: str, name: str) -> dict:
+        """切换设备时结束上一场，为当前设备建立新的会话容器。"""
         if self._session is None or self._session.get("address") != address:
             self._session = {
                 "address": address,
@@ -505,15 +501,64 @@ class Controller(QObject):
                 "last": None,
                 # 本次连接的完整心率曲线，供历史记录窗口逐条绘制折线图。
                 "series": [],
+                # 本次连接中的状态变化与高心率截屏索引。
+                "state_events": [],
+                "screenshots": [],
             }
-        self._session["count"] = int(self._session.get("count") or 0) + 1
-        self._session["sum"] = float(self._session.get("sum") or 0) + bpm
-        self._session["min"] = bpm if self._session.get("min") is None else min(int(self._session["min"]), bpm)
-        self._session["max"] = bpm if self._session.get("max") is None else max(int(self._session["max"]), bpm)
-        self._session["last"] = bpm
+        return self._session
+
+    @staticmethod
+    def _record_state_change(session: dict, label: str, ts: int) -> None:
+        """只在状态真正变化时记一笔，避免每个采样点都写入历史。"""
+        events = session.setdefault("state_events", [])
+        if events and events[-1][1] == label:
+            return
+        events.append([int(ts), str(label)])
+        if len(events) > 120:
+            del events[:-120]
+
+    def _on_heart_rate(self, bpm: int, source: str, address: str, name: str) -> None:
+        self._last_hr_time = time.monotonic()
+        now = int(time.time())
+
+        # 先写入历史，再用同一条序列算状态，保证判断看到的是最新样本。
+        samples = self._history_by_device.setdefault(address, [])
+        samples.append([now, bpm])
+        if len(samples) > 200:
+            del samples[:-200]
+        tracker = self._state_trackers.setdefault(address, HeartStateTracker())
+        state = tracker.update(samples)
+        session = self._ensure_session(address, name)
+        self._record_state_change(session, state.label, now)
+
+        self.window.push_hr(bpm, source, address, name, state=state)
+        self.floating.set_hr(bpm, source, address, name, state=state)
+        self.tray.setToolTip(f"心率监测 · {bpm} BPM · {state.label}")
+        # 游戏运行时把心率记入当前游戏会话
+        if self._game_session is not None:
+            self._record_game_hr(bpm, state.label)
+            if self.settings.game_show_on_float:
+                series = self._game_session.get("series") or []
+                vals = [int(x[1]) for x in series if isinstance(x, (list, tuple)) and len(x) >= 2]
+                self.floating.set_game_info(
+                    self._game_name,
+                    bpm=vals[-1] if vals else None,
+                    low=min(vals) if vals else None,
+                    high=max(vals) if vals else None,
+                )
+
+        self.window.set_device_history(address, samples)
+        self.floating.set_device_history(address, samples)
+        self._maybe_capture(bpm, state.label, address, name, session)
+
+        session["count"] = int(session.get("count") or 0) + 1
+        session["sum"] = float(session.get("sum") or 0) + bpm
+        session["min"] = bpm if session.get("min") is None else min(int(session["min"]), bpm)
+        session["max"] = bpm if session.get("max") is None else max(int(session["max"]), bpm)
+        session["last"] = bpm
         # 采样曲线：与全局历史一致用 Unix 秒，限制长度避免持久化文件膨胀。
-        series = self._session.setdefault("series", [])
-        series.append([int(time.time()), int(bpm)])
+        series = session.setdefault("series", [])
+        series.append([now, int(bpm)])
         if len(series) > 200:
             del series[:-200]
 
@@ -536,6 +581,8 @@ class Controller(QObject):
                 "avg": round(float(self._session.get("sum") or 0.0) / count, 1),
                 "last": int(self._session.get("last") or 0),
                 "series": [list(x) for x in (self._session.get("series") or [])],
+                "state_events": [list(x) for x in (self._session.get("state_events") or [])],
+                "screenshots": [dict(x) for x in (self._session.get("screenshots") or [])],
             }
         )
         if len(self._sessions) > 50:
@@ -664,6 +711,54 @@ class Controller(QObject):
         Backdrop.refresh_all()
         self._save_settings()
 
+    def _on_capture_settings_changed(self) -> None:
+        """截屏阈值 / 节奏变化后重置持续计时，避免沿用旧触发状态。"""
+        self._capture.reset()
+        self._save_settings()
+        self.window.append_log("高心率截屏设置已更新")
+
+    def _maybe_capture(
+        self,
+        bpm: int,
+        state: str,
+        address: str,
+        name: str,
+        session: dict,
+    ) -> None:
+        """达到用户设定的心率条件时自动截屏，并把时间戳索引写入历史。"""
+        if not getattr(self.settings, "capture_enabled", False):
+            return
+        if not self._capture.ready(
+            bpm,
+            int(time.time()),
+            int(getattr(self.settings, "capture_threshold", 120)),
+            int(getattr(self.settings, "capture_sustain", 0)),
+            int(getattr(self.settings, "capture_cooldown", 30)),
+        ):
+            return
+        from .history_window import session_key
+
+        info = capture_screen(
+            bpm,
+            state=state,
+            device=name or address,
+            session=session_key(session),
+            directory=str(getattr(self.settings, "capture_dir", "") or ""),
+        )
+        if info is None:
+            self.window.append_log("高心率截屏失败：无法读取当前屏幕")
+            return
+        shots = self.settings.screenshot_events
+        shots.append(info)
+        # 只保留最近 200 张的索引，避免设置文件无限膨胀；图片本体仍保留在磁盘上。
+        if len(shots) > 200:
+            del shots[:-200]
+        session.setdefault("screenshots", []).append(dict(info))
+        self._save_settings()
+        self.window.append_log(f"高心率截屏已保存：{bpm} BPM · {state} · {info['path']}")
+        if self._history_window is not None:
+            self._history_window.set_shots(list(shots))
+
     def _check_game(self) -> None:
         """轮询当前运行的游戏；进入/退出游戏时开始或结束一场游戏会话。"""
         if not self.settings.game_detect_enabled:
@@ -719,6 +814,8 @@ class Controller(QObject):
             "sum": 0.0,
             "last": None,
             "series": [],
+            "state_events": [],
+            "screenshots": [],
         }
         self.window.append_log(f"检测到正在运行：{game.display_name}，开始记录游戏心率")
 
@@ -735,6 +832,8 @@ class Controller(QObject):
                 float(self._game_session.get("sum") or 0.0) / count, 1
             )
             record = dict(self._game_session)
+            record["state_events"] = [list(x) for x in (record.get("state_events") or [])]
+            record["screenshots"] = [dict(x) for x in (record.get("screenshots") or [])]
             self._sessions.append(record)
             if len(self._sessions) > 50:
                 self._sessions = self._sessions[-50:]
@@ -750,11 +849,13 @@ class Controller(QObject):
         if sync_visibility:
             self._sync_game_visibility(False)
 
-    def _record_game_hr(self, bpm: int) -> None:
-        """把一拍心率记入当前游戏会话。"""
+    def _record_game_hr(self, bpm: int, state: str = "") -> None:
+        """把一拍心率记入当前游戏会话，并记录状态变化。"""
         if self._game_session is None:
             return
         s = self._game_session
+        if state:
+            self._record_state_change(s, state, int(time.time()))
         s["count"] = int(s.get("count") or 0) + 1
         s["sum"] = float(s.get("sum") or 0) + bpm
         s["min"] = bpm if s.get("min") is None else min(int(s["min"]), bpm)

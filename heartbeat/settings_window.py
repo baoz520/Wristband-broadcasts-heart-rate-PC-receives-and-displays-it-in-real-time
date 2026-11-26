@@ -71,6 +71,8 @@ class SettingsWindow(QDialog):
     gamePollChanged = Signal(int)
     # 背景自定义
     backdropChanged = Signal()
+    # 高心率截屏（阈值、持续、间隔、目录由用户决定）
+    captureSettingsChanged = Signal()
 
     def __init__(self, settings, parent: QWidget | None = None):
         super().__init__(parent)
@@ -283,6 +285,60 @@ class SettingsWindow(QDialog):
         )
         self._bg_dim_slider.valueChanged.connect(self._on_backdrop_control)
 
+        # ---------------- 高心率截屏（宽卡） ----------------
+        cap_sec = _Section("高心率截屏")
+        tip = QLabel(
+            "达到你设定的心率后自动截取当前屏幕，图片带时间戳保存在历史中可查看"
+        )
+        tip.setObjectName("Sub")
+        tip.setWordWrap(True)
+        cap_sec.lay.addWidget(tip)
+
+        sw, self._capture_switch = self._switch(
+            "启用自动截屏", "达到触发心率时自动保存当前画面", False
+        )
+        cap_sec.lay.addWidget(sw)
+        self._capture_switch.toggled.connect(self._on_capture_control)
+        cap_sec.add_divider()
+
+        self._capture_threshold_slider = self._add_slider_row(
+            cap_sec, "触发心率", "BPM，达到该值才开始截屏", 80, 200, 120
+        )
+        self._capture_threshold_slider.valueChanged.connect(self._on_capture_control)
+        self._capture_sustain_slider = self._add_slider_row(
+            cap_sec, "持续时间", "秒，0 表示达到即截屏", 0, 10, 0
+        )
+        self._capture_sustain_slider.valueChanged.connect(self._on_capture_control)
+        self._capture_cooldown_slider = self._add_slider_row(
+            cap_sec, "截屏间隔", "秒，两次截屏之间的最短时间", 5, 180, 30
+        )
+        self._capture_cooldown_slider.valueChanged.connect(self._on_capture_control)
+
+        folder_row = QWidget()
+        folder_row.setFixedHeight(56)
+        fh = QHBoxLayout(folder_row)
+        fh.setContentsMargins(0, 4, 0, 4)
+        fh.setSpacing(10)
+        fcol = QVBoxLayout()
+        fcol.setContentsMargins(0, 0, 0, 0)
+        fcol.setSpacing(0)
+        fname = QLabel("保存位置")
+        fname.setObjectName("H2")
+        self._capture_dir_label = QLabel("默认：配置目录 / captures")
+        self._capture_dir_label.setObjectName("Sub")
+        fcol.addWidget(fname)
+        fcol.addWidget(self._capture_dir_label)
+        fh.addLayout(fcol, 1)
+        choose_dir = RaisedButton("选择目录…")
+        choose_dir.setFixedWidth(104)
+        choose_dir.clicked.connect(self._choose_capture_dir)
+        reset_dir = RaisedButton("默认")
+        reset_dir.setFixedWidth(72)
+        reset_dir.clicked.connect(self._reset_capture_dir)
+        fh.addWidget(choose_dir, 0, Qt.AlignmentFlag.AlignVCenter)
+        fh.addWidget(reset_dir, 0, Qt.AlignmentFlag.AlignVCenter)
+        cap_sec.lay.addWidget(folder_row)
+
         self._grid.set_placements(
             {
                 4: [
@@ -290,18 +346,21 @@ class SettingsWindow(QDialog):
                     (game_sec, 0, 2, 2, 2),
                     (custom_sec, 2, 0, 1, 4),
                     (bg_sec, 3, 0, 1, 4),
+                    (cap_sec, 4, 0, 1, 4),
                 ],
                 2: [
                     (float_sec, 0, 0, 2, 1),
                     (game_sec, 0, 1, 2, 1),
                     (custom_sec, 2, 0, 1, 2),
                     (bg_sec, 3, 0, 1, 2),
+                    (cap_sec, 4, 0, 1, 2),
                 ],
                 1: [
                     (float_sec, 0, 0, 2, 1),
                     (game_sec, 2, 0, 2, 1),
                     (custom_sec, 4, 0, 2, 1),
                     (bg_sec, 6, 0, 2, 1),
+                    (cap_sec, 8, 0, 2, 1),
                 ],
             }
         )
@@ -382,6 +441,27 @@ class SettingsWindow(QDialog):
         self._bg_dim_slider.setValue(int(getattr(s, "background_dim", 45)))
         self._refresh_backdrop_preview()
 
+        # 截屏控件在载入时暂不触发信号，避免把默认值写回设置
+        for widget in (
+            self._capture_switch,
+            self._capture_threshold_slider,
+            self._capture_sustain_slider,
+            self._capture_cooldown_slider,
+        ):
+            widget.blockSignals(True)
+        self._capture_switch.setChecked(bool(getattr(s, "capture_enabled", False)))
+        self._capture_threshold_slider.setValue(int(getattr(s, "capture_threshold", 120)))
+        self._capture_sustain_slider.setValue(int(getattr(s, "capture_sustain", 0)))
+        self._capture_cooldown_slider.setValue(int(getattr(s, "capture_cooldown", 30)))
+        for widget in (
+            self._capture_switch,
+            self._capture_threshold_slider,
+            self._capture_sustain_slider,
+            self._capture_cooldown_slider,
+        ):
+            widget.blockSignals(False)
+        self._refresh_capture_dir()
+
     # ---------------------------------------------------------- 背景自定义
     def _refresh_backdrop_preview(self) -> None:
         color = getattr(self, "_bg_color", "#0b1322")
@@ -444,6 +524,38 @@ class SettingsWindow(QDialog):
         self._bg_image = ""
         self._emit_backdrop_if_changed()
 
+    # ---------------------------------------------------------- 高心率截屏
+    def _refresh_capture_dir(self) -> None:
+        path = str(getattr(self.settings, "capture_dir", "") or "")
+        self._capture_dir_label.setText(path or "默认：配置目录 / captures")
+        self._capture_dir_label.setToolTip(path)
+
+    def _sync_capture(self) -> None:
+        s = self.settings
+        s.capture_enabled = bool(self._capture_switch.isChecked())
+        s.capture_threshold = int(self._capture_threshold_slider.value())
+        s.capture_sustain = int(self._capture_sustain_slider.value())
+        s.capture_cooldown = int(self._capture_cooldown_slider.value())
+        self._refresh_capture_dir()
+
+    def _on_capture_control(self, *_args) -> None:
+        self._sync_capture()
+        self.captureSettingsChanged.emit()
+
+    def _choose_capture_dir(self) -> None:
+        initial = str(getattr(self.settings, "capture_dir", "") or "")
+        path = QFileDialog.getExistingDirectory(self, "选择截屏保存目录", initial)
+        if not path:
+            return
+        self.settings.capture_dir = path
+        self._refresh_capture_dir()
+        self.captureSettingsChanged.emit()
+
+    def _reset_capture_dir(self) -> None:
+        self.settings.capture_dir = ""
+        self._refresh_capture_dir()
+        self.captureSettingsChanged.emit()
+
     # ---------------------------------------------------------- 进程快捷添加
     def _pick_process(self) -> None:
         """打开进程选择器，用户勾选后直接写入自定义清单并立即生效。"""
@@ -505,6 +617,7 @@ class SettingsWindow(QDialog):
         s.game_poll_seconds = int(self._poll_slider.value())
         custom = [ln.strip() for ln in self._custom_edit.text().splitlines() if ln.strip()]
         s.game_custom = custom
+        self._sync_capture()
 
         self.floatWidthChanged.emit(s.float_width)
         self.floatOpacityChanged.emit(s.float_opacity)
@@ -517,6 +630,7 @@ class SettingsWindow(QDialog):
         self.gameShowFloatChanged.emit(s.game_show_on_float)
         self.gameFloatModeChanged.emit(s.game_float_mode)
         self.gamePollChanged.emit(s.game_poll_seconds)
+        self.captureSettingsChanged.emit()
 
     def accept_if_needed(self) -> None:
         self.collect()
