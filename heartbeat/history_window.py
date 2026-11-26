@@ -102,10 +102,30 @@ class _StatStrip(QWidget):
         p.end()
 
 
-class ShotThumb(QLabel):
-    """截图缩略图：点击用系统默认看图程序打开原图。"""
+def shot_exists(path: str) -> bool:
+    """截图索引可能残留已删除的文件；渲染前统一按磁盘实际存在过滤。"""
+    try:
+        return bool(path) and Path(str(path)).is_file()
+    except (OSError, TypeError):
+        return False
 
-    def __init__(self, path: str, width: int = 112, height: int = 72):
+
+def live_shots(shots) -> list[dict]:
+    """只保留文件仍在磁盘上的截图索引。"""
+    return [
+        shot for shot in (shots or [])
+        if isinstance(shot, dict) and shot.get("path") and shot_exists(str(shot["path"]))
+    ]
+
+
+class ShotThumb(QLabel):
+    """截图缩略图：点击打开原图，右上角提供单张删除按钮。"""
+
+    deleteRequested = Signal(str)
+
+    def __init__(
+        self, path: str, width: int = 112, height: int = 72, show_delete: bool = True
+    ):
         super().__init__()
         self._path = str(path or "")
         self.setFixedSize(width, height)
@@ -125,6 +145,15 @@ class ShotThumb(QLabel):
             self.setPixmap(pixmap)
         else:
             self.setText("图片不可用")
+        if show_delete:
+            remove = RaisedButton("×", self)
+            remove.setFixedSize(22, 22)
+            remove.setProperty("danger", True)
+            remove.setCursor(Qt.CursorShape.PointingHandCursor)
+            remove.setToolTip("删除这张截图")
+            remove.move(width - 26, 4)
+            remove.raise_()
+            remove.clicked.connect(lambda: self.deleteRequested.emit(self._path))
 
     def mousePressEvent(self, event) -> None:  # noqa: N802
         if self._path:
@@ -141,6 +170,7 @@ class SessionCard(BentoCard):
     """单次连接的记录卡片（便当盒白卡）。"""
 
     deleteRequested = Signal(str)
+    shotDeleteRequested = Signal(str)
 
     def __init__(self, record: dict, parent: QWidget | None = None):
         super().__init__(parent, object_name="BentoCard", radius=24.0)
@@ -241,12 +271,9 @@ class SessionCard(BentoCard):
             state_line.setWordWrap(True)
             lay.addWidget(state_line)
 
-        shots = [
-            shot for shot in (record.get("screenshots") or [])
-            if isinstance(shot, dict) and shot.get("path")
-        ]
+        shots = live_shots(record.get("screenshots"))
         if shots:
-            shot_title = QLabel(f"高心率截屏 · {len(shots)} 张（点击查看原图）")
+            shot_title = QLabel(f"高心率截屏 · {len(shots)} 张（点击查看原图，× 删除）")
             shot_title.setObjectName("Sub")
             lay.addWidget(shot_title)
             row = QHBoxLayout()
@@ -258,6 +285,7 @@ class SessionCard(BentoCard):
                 thumb.setToolTip(
                     f"{_shot_caption(shot)}\n{state}\n{shot['path']}"
                 )
+                thumb.deleteRequested.connect(self.shotDeleteRequested.emit)
                 row.addWidget(thumb, 0)
             if len(shots) > 4:
                 more_shots = QLabel(f"+{len(shots) - 4}")
@@ -269,6 +297,8 @@ class SessionCard(BentoCard):
 
 class ScreenshotGallery(BentoCard):
     """历史窗口顶部的高心率截图画廊：按时间倒序展示全部截图。"""
+
+    shotDeleteRequested = Signal(str)
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent, object_name="ScreenshotGallery", radius=24.0)
@@ -291,7 +321,7 @@ class ScreenshotGallery(BentoCard):
         head.addWidget(folder_btn, 0)
         lay.addLayout(head)
 
-        tip = QLabel("点击缩略图查看原图；每张截图都按触发时的心率与时间命名")
+        tip = QLabel("点击缩略图查看原图，右上角 × 删除；磁盘上已删除的图片会自动隐藏")
         tip.setObjectName("Sub")
         lay.addWidget(tip)
 
@@ -309,8 +339,7 @@ class ScreenshotGallery(BentoCard):
                 widget.setParent(None)
                 widget.deleteLater()
         self._shots = [
-            dict(shot) for shot in (shots or [])
-            if isinstance(shot, dict) and shot.get("path")
+            dict(shot) for shot in live_shots(shots)
         ]
         self.setVisible(bool(self._shots))
         self._count.setText(f"{len(self._shots)} 张")
@@ -323,6 +352,7 @@ class ScreenshotGallery(BentoCard):
             thumb.setToolTip(
                 f"{_shot_caption(shot)}\n{shot.get('state', '')}\n{shot['path']}"
             )
+            thumb.deleteRequested.connect(self.shotDeleteRequested.emit)
             cell_lay.addWidget(thumb, 0, Qt.AlignmentFlag.AlignHCenter)
             caption = QLabel(_shot_caption(shot))
             caption.setObjectName("Sub")
@@ -345,6 +375,7 @@ class HistoryWindow(QDialog):
     """历史记录窗口：响应式便当盒网格，显示每次连接的汇总与心率曲线。"""
 
     deleteRequested = Signal(str)
+    shotDeleteRequested = Signal(str)
 
     def __init__(
         self,
@@ -399,6 +430,7 @@ class HistoryWindow(QDialog):
         body.setContentsMargins(16, 8, 16, 10)
         body.setSpacing(16)
         self._gallery = ScreenshotGallery(container)
+        self._gallery.shotDeleteRequested.connect(self.shotDeleteRequested.emit)
         body.addWidget(self._gallery)
         # 历史窗口默认 2 栏，最大化后可到 4 栏；间隙与其他窗口统一 16px
         self._cards_lay = BentoGrid(body.parent(), gap=16, wide=1100, medium=520)
@@ -477,6 +509,7 @@ class HistoryWindow(QDialog):
             for record in reversed(self._sessions):
                 card = SessionCard(record)
                 card.deleteRequested.connect(self.deleteRequested.emit)
+                card.shotDeleteRequested.connect(self.shotDeleteRequested.emit)
                 self._cards.append(card)
         self._relayout()
 

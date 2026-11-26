@@ -109,6 +109,11 @@ class Controller(QObject):
         self._ui_timer.timeout.connect(self._tick)
         self._ui_timer.start(1000)
 
+        # 截图文件在文件夹里被手动删除后，软件内也要自动消失
+        self._shot_watch_timer = QTimer(self)
+        self._shot_watch_timer.timeout.connect(self.prune_missing_shots)
+        self._shot_watch_timer.start(2000)
+
         # 游戏进程检测定时器（默认关闭，设置里可开启）
         self._game_timer = QTimer(self)
         self._game_timer.timeout.connect(self._check_game)
@@ -158,6 +163,7 @@ class Controller(QObject):
     def _wire(self) -> None:
         self.window.floatingToggled.connect(self.set_floating)
         self.window.deviceManagementToggled.connect(self.set_device_management)
+        self.window.hrDetectionToggled.connect(self._set_hr_detection)
         self.window.autoReconnectToggled.connect(self._set_auto_reconnect)
         self.window.historyToggled.connect(self._set_history_mode)
         self.window.historyWindowRequested.connect(self.show_history_window)
@@ -182,6 +188,7 @@ class Controller(QObject):
         self.worker.log.connect(self._on_log)
 
     def _apply_initial_state(self) -> None:
+        self.window.set_hr_detect_switch(self.settings.hr_detection_enabled)
         self.window.set_floating_switch(self.settings.floating_visible)
         self.window.set_device_switch(self.settings.device_management)
         self.window.set_auto_switch(self.settings.auto_reconnect)
@@ -241,12 +248,17 @@ class Controller(QObject):
             return
         self.worker.set_auto_reconnect(self.settings.auto_reconnect)
         self.worker.start_scan()
-        if self.settings.saved_address and self.settings.auto_reconnect:
+        if (
+            self.settings.hr_detection_enabled
+            and self.settings.saved_address
+            and self.settings.auto_reconnect
+        ):
             QTimer.singleShot(500, self._auto_connect_saved)
 
     def _auto_connect_saved(self) -> None:
         if (
             self.settings.device_management
+            and self.settings.hr_detection_enabled
             and self.settings.saved_address
             and self.settings.auto_reconnect
         ):
@@ -263,6 +275,7 @@ class Controller(QObject):
 
     def show_history_window(self) -> None:
         """打开历史记录窗口；每次打开都用最新的会话列表刷新。"""
+        self.prune_missing_shots()
         if self._history_window is None:
             from .history_window import HistoryWindow
 
@@ -273,6 +286,7 @@ class Controller(QObject):
             )
             self._history_window.setWindowIcon(self.window.windowIcon())
             self._history_window.deleteRequested.connect(self.delete_session)
+            self._history_window.shotDeleteRequested.connect(self.delete_shot)
         else:
             self._history_window.set_sessions(list(self._sessions))
             self._history_window.set_shots(list(self.settings.screenshot_events))
@@ -342,6 +356,71 @@ class Controller(QObject):
         self._save_settings()
         self.window.append_log("已删除一条历史记录")
 
+    def _drop_shot(self, path: str) -> bool:
+        """从索引和所有会话引用中移除一张截图，但不删除磁盘文件。"""
+        path = str(path or "")
+        if not path:
+            return False
+        before = len(self.settings.screenshot_events)
+        self.settings.screenshot_events = [
+            shot for shot in self.settings.screenshot_events
+            if str(shot.get("path", "")) != path
+        ]
+        for session in self._sessions:
+            shots = session.get("screenshots") or []
+            if any(str(s.get("path", "")) == path for s in shots):
+                session["screenshots"] = [
+                    s for s in shots if str(s.get("path", "")) != path
+                ]
+        if self._session is not None:
+            shots = self._session.get("screenshots") or []
+            if any(str(s.get("path", "")) == path for s in shots):
+                self._session["screenshots"] = [
+                    s for s in shots if str(s.get("path", "")) != path
+                ]
+        return len(self.settings.screenshot_events) != before
+
+    def delete_shot(self, path: str) -> None:
+        """删除单张高心率截图：索引、会话引用与磁盘文件一起清理。"""
+        path = str(path or "")
+        changed = self._drop_shot(path)
+        if not changed:
+            return
+        try:
+            Path(path).unlink(missing_ok=True)
+        except OSError:
+            pass
+        self._save_settings()
+        self._refresh_shot_views()
+        self.window.append_log(f"已删除一张高心率截图：{Path(path).name}")
+
+    def prune_missing_shots(self) -> bool:
+        """用户在文件夹里手动删除图片后，把失效索引一并清掉。
+
+        历史窗口显示时按文件是否存在过滤，这里再把索引同步清理，避免
+        设置文件长期累积无效记录。返回是否有变更。
+        """
+        from .history_window import shot_exists
+
+        missing = [
+            str(shot.get("path", ""))
+            for shot in self.settings.screenshot_events
+            if not shot_exists(str(shot.get("path", "")))
+        ]
+        changed = False
+        for path in missing:
+            changed = self._drop_shot(path) or changed
+        if changed:
+            self._save_settings()
+            self._refresh_shot_views()
+        return changed
+
+    def _refresh_shot_views(self) -> None:
+        """截图变动后同步主历史窗口（会话卡内嵌截图一并刷新）。"""
+        if self._history_window is not None:
+            self._history_window.set_sessions(list(self._sessions))
+            self._history_window.set_shots(list(self.settings.screenshot_events))
+
     def quit(self) -> None:
         if self._quitting:
             return
@@ -356,6 +435,29 @@ class Controller(QObject):
             self._history_window.hide()
         self.window.hide()
         self.app.quit()
+
+    def _set_hr_detection(self, enabled: bool) -> None:
+        """心率检测总开关：关闭时停止一切心率处理并清空当前显示。"""
+        enabled = bool(enabled)
+        self.settings.hr_detection_enabled = enabled
+        self.window.set_hr_detect_switch(enabled)
+        if enabled:
+            self.window.append_log("心率检测已开启")
+            if (
+                self.settings.device_management
+                and self._current_state not in ("connected", "connecting", "reconnecting")
+            ):
+                self.worker.start_scan()
+        else:
+            self._finalize_session()
+            self._session = None
+            self.window._clear_current_hr()
+            self.window.set_link("idle", "", "")
+            self.floating.set_link("idle", "", "")
+            self.tray.setToolTip("心率监测 · 检测已关闭")
+            self.window.append_log("心率检测已关闭，已停止接收心率数据")
+        self._capture.reset()
+        self._save_settings()
 
     def set_floating(self, visible: bool) -> None:
         self.settings.floating_visible = bool(visible)
@@ -395,7 +497,11 @@ class Controller(QObject):
         if enabled:
             if self._current_state not in ("connected", "connecting", "reconnecting"):
                 self.worker.start_scan()
-            if self.settings.auto_reconnect and self.settings.saved_address:
+            if (
+                self.settings.hr_detection_enabled
+                and self.settings.auto_reconnect
+                and self.settings.saved_address
+            ):
                 if self._current_state not in ("connected", "connecting", "reconnecting"):
                     self.worker.connect_device(
                         self.settings.saved_address, self.settings.saved_name
@@ -518,6 +624,8 @@ class Controller(QObject):
             del events[:-120]
 
     def _on_heart_rate(self, bpm: int, source: str, address: str, name: str) -> None:
+        if not getattr(self.settings, "hr_detection_enabled", True):
+            return
         self._last_hr_time = time.monotonic()
         now = int(time.time())
 
@@ -610,6 +718,9 @@ class Controller(QObject):
                 self.floating.set_device_history(address, samples)
         if state in ("disconnected", "idle", "error"):
             self._finalize_session()
+        if state == "reconnecting" and self.settings.device_management:
+            # 重连等待阶段重新开启扫描，掉线后仍能发现设备并接收广播心率
+            self.worker.start_scan()
         if state == "connected":
             self.tray.setToolTip(f"心率监测 · {name or address}")
         elif state in ("idle", "disconnected", "error"):

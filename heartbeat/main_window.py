@@ -173,6 +173,7 @@ class DeviceRow(QFrame):
 class MainWindow(QMainWindow):
     floatingToggled = Signal(bool)
     deviceManagementToggled = Signal(bool)
+    hrDetectionToggled = Signal(bool)
     autoReconnectToggled = Signal(bool)
     historyToggled = Signal(bool)
     historyWindowRequested = Signal()
@@ -425,6 +426,13 @@ class MainWindow(QMainWindow):
         lay.setContentsMargins(31, 20, 31, 20)
         lay.setSpacing(0)
 
+        hr_row, self._hr_detect_switch = self._switch_row(
+            "心率检测", "关闭后暂停接收与显示心率数据", self.settings.hr_detection_enabled
+        )
+        lay.addWidget(hr_row)
+        divider0 = QFrame()
+        divider0.setObjectName("Divider")
+        lay.addWidget(divider0)
         row1, self._floating_switch = self._switch_row(
             "悬浮窗", "在桌面置顶显示实时心率", self.settings.floating_visible
         )
@@ -457,6 +465,7 @@ class MainWindow(QMainWindow):
         hrow.addWidget(self._history_button)
         lay.addWidget(hist_row)
 
+        self._hr_detect_switch.toggled.connect(self.hrDetectionToggled.emit)
         self._floating_switch.toggled.connect(self.floatingToggled.emit)
         self._device_switch.toggled.connect(self._on_device_switch)
         self.set_history_mode(self.settings.history_mode)
@@ -588,6 +597,11 @@ class MainWindow(QMainWindow):
         self._device_card.setVisible(checked)
         self.deviceManagementToggled.emit(checked)
 
+    def set_hr_detect_switch(self, checked: bool) -> None:
+        self._hr_detect_switch.blockSignals(True)
+        self._hr_detect_switch.setChecked(bool(checked))
+        self._hr_detect_switch.blockSignals(False)
+
     def set_floating_switch(self, checked: bool) -> None:
         self._floating_switch.blockSignals(True)
         self._floating_switch.setChecked(checked)
@@ -634,10 +648,7 @@ class MainWindow(QMainWindow):
         samples = self._history_by_device.get(key, []) if key else []
         if not samples:
             return
-        ts, bpm = samples[-1]
-        zone = heart_rate_zone(bpm)
-        color = ZONE_COLORS.get(zone, CHAMPAGNE)
-        wall_now, mono_now = time.time(), time.monotonic()
+        wall_now = time.time()
 
         def ago_text(wall_ts: float) -> str:
             seconds = max(0, int(wall_now - float(wall_ts)))
@@ -665,18 +676,9 @@ class MainWindow(QMainWindow):
         self._stat_avg.setText(str(round(sum(hist_vals) / len(hist_vals))))
         self._stat_max.setText(str(max(hist_vals)))
 
-        self._bpm.setText(str(bpm))
-        self._bpm.setStyleSheet(f"color: {CHAMPAGNE};")
-        self._heart.set_bpm(bpm, color)
-        state = HeartStateTracker().update(samples)
-        self._zone.set_zone(state.label, state.color)
-        self._zone.setToolTip(
-            f"相对基线 {state.baseline:.0f} BPM：{state.delta:+.0f} BPM，"
-            f"近一分钟 {state.trend:+.0f} BPM"
-        )
-        self._source.setText(f"历史 · {zone} · {ago_text(ts)}")
-        # _last_hr_time 统一使用 monotonic 基准（与 _is_live_fresh / _refresh_hint 一致）
-        self._last_hr_time = mono_now - max(0.0, wall_now - float(ts))
+        # 历史曲线照常绘制，但"当前心率"不用历史值回填：
+        # 未连接 / 无实时数据时心率处显示 --，避免出现上一次的旧心率。
+        # 这里不触碰 _last_hr_time，避免把几小时前的历史误判为实时新鲜数据。
 
     def set_devices(self, devices: list[DeviceInfo]) -> None:
         self._devices = devices
@@ -699,7 +701,7 @@ class MainWindow(QMainWindow):
             row.update_info(info, self._active_address, self._link_state)
 
         self._empty.setVisible(not shown)
-        if self._link_state not in ("connected", "connecting", "reconnecting"):
+        if self._link_state not in ("connected", "connecting"):
             self._scan_hint.setText(f"扫描中 · {len(devices)} 台" if devices else "扫描中…")
 
     def set_link(self, state: str, address: str, name: str) -> None:
@@ -712,7 +714,8 @@ class MainWindow(QMainWindow):
         if state == "connecting" and address != previous:
             self._reset_metrics()
         if state in ("disconnected", "error"):
-            self._last_hr_time = 0.0
+            # 断连即清空"当前心率"，不用上一次的旧值填充
+            self._reset_metrics()
 
         if state == "connected":
             self._pill.set_state("connected", "已连接")
@@ -726,8 +729,8 @@ class MainWindow(QMainWindow):
             self._scan_hint.setText("连接中 · 扫描暂停")
         elif state == "reconnecting":
             self._pill.set_state("reconnecting", STATE_LABEL["reconnecting"])
-            self._hint.setText("连接中断，正在自动重连…")
-            self._scan_hint.setText("重连中 · 扫描暂停")
+            self._hint.setText("连接中断，正在扫描设备并自动重连…")
+            self._scan_hint.setText("重连中 · 扫描中")
         elif state == "disconnected":
             self._pill.set_state("disconnected", STATE_LABEL["disconnected"])
             self._hint.setText("连接已断开")
@@ -861,15 +864,21 @@ class MainWindow(QMainWindow):
         elif state == "connected":
             self._hint.setText("已连接，等待心率数据…")
 
+    def _clear_current_hr(self) -> None:
+        """清空"当前心率"显示，不动历史折线图。"""
+        self._bpm.setText("--")
+        self._bpm.setStyleSheet(f"color: {MOONLIGHT};")
+        self._heart.set_bpm(0)
+        self._zone.set_zone(None)
+        self._source.setText("")
+
     def _tick(self) -> None:
         self._refresh_hint()
         if self._last_hr_time and time.monotonic() - self._last_hr_time > 15:
-            self._heart.set_bpm(0)
-            self._apply_history()
-            if (
-                self._link_state not in ("connected", "connecting", "reconnecting")
-                and self._last_source == "广播"
-            ):
+            self._clear_current_hr()
+            self._last_hr_time = 0.0
+            self._last_source = ""
+            if self._link_state not in ("connected", "connecting", "reconnecting"):
                 self._pill.set_state("idle", "未连接")
 
     # ------------------------------------------------------------------ 事件

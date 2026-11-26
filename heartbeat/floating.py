@@ -230,16 +230,11 @@ class FloatingWindow(QWidget):
         self._address = address or self._device
         if name:
             self._device = name
-        history_bpm: Optional[int] = None
-        if bpm is None:
-            history_bpm = self._history_value()
-            bpm = history_bpm
+        # 无实时数据时一律显示 --：不再用历史心率回填，避免出现上一次的旧值。
         self._bpm = bpm
         if bpm is None:
             self._source = ""
             self._seconds_ago = 0
-        elif history_bpm is not None:
-            self._source = "历史"
         else:
             self._source = source if source else "心率服务"
             self._seconds_ago = 0
@@ -258,20 +253,13 @@ class FloatingWindow(QWidget):
             self._address = address
         self._refresh_meta()
         if state != "connected":
-            if not self._history_mode:
-                self._bpm = None
-                self._source = ""
-                self._heart.set_bpm(0)
-                self._bpm_label.setText("--")
-                self._bpm_label.setStyleSheet(f"color: {self._muted_color()};")
-            else:
-                bpm = self._history_value()
-                if bpm is None:
-                    self._bpm = None
-                    self._source = ""
-                    self._heart.set_bpm(0)
-                    self._bpm_label.setText("--")
-                    self._bpm_label.setStyleSheet(f"color: {self._muted_color()};")
+            # 未连接 / 断连时清空当前心率，历史曲线仍由主界面查看。
+            self._bpm = None
+            self._source = ""
+            self._heart_state = None
+            self._heart.set_bpm(0)
+            self._bpm_label.setText("--")
+            self._bpm_label.setStyleSheet(f"color: {self._muted_color()};")
         elif self._bpm is None:
             self.set_hr(None, self._source, self._address, self._device)
         self.setToolTip(f"{self._device}\n{address}" if address else self._device)

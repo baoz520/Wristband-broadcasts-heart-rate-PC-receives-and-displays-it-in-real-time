@@ -311,6 +311,10 @@ class BleWorker(QThread):
         attempt = 0
         ever_linked = False
         while not self._closing and self._want_address == address:
+            # 重连等待期间恢复扫描：边扫描边等待下一次连接尝试，这样
+            # 设备掉线后既能重新发现设备，也能继续接收广播心率。
+            if self._scanning:
+                await self._stop_scan(announce=False)
             state = "reconnecting" if (attempt > 0 or ever_linked) else "connecting"
             self.linkChanged.emit(state, address, name)
             client = None
@@ -366,6 +370,9 @@ class BleWorker(QThread):
             delay = min(30, 2 ** attempt)
             self.linkChanged.emit("reconnecting", address, name)
             self.log.emit(f"心率连接中断，{delay} 秒后自动重连")
+            # 重连等待阶段重新开启扫描（连接尝试前会在循环顶部停掉）。
+            if self._want_scan:
+                await self._ensure_scan()
             try:
                 await asyncio.sleep(delay)
             except asyncio.CancelledError:

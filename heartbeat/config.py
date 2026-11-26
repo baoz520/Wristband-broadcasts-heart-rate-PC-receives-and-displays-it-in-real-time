@@ -20,6 +20,7 @@ class Settings:
     floating_visible: bool = True
     device_management: bool = True
     auto_reconnect: bool = True
+    hr_detection_enabled: bool = True         # 主界面心率检测总开关
     saved_address: str = ""
     saved_name: str = ""
     floating_x: int = -1

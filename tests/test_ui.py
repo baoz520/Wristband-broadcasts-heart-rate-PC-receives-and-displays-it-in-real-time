@@ -200,7 +200,10 @@ def main() -> None:
         f"历史折线点数不足: {len(controller.window._spark._points)}"
     )
     assert "小时前" in controller.window._spark._axis_labels[0], "时间轴未反映真实时间跨度"
-    assert controller.floating._source == "历史", "悬浮窗未切换到历史数据"
+    # 未连接设备时不再用历史心率回填"当前心率"，悬浮窗应显示 --
+    assert controller.floating._bpm is None, "断连时悬浮窗仍显示上一次心率"
+    assert controller.floating._bpm_label.text() == "--", "断连时悬浮窗心率未清空"
+    assert controller.window._bpm.text() == "--", "断连时主界面仍显示上一次心率"
 
     # 7. 标题栏圆形按钮不应绘制焦点方向的方框轮廓
     import inspect
@@ -505,7 +508,62 @@ def main() -> None:
 
     state_labels = [w.text() for w in hw2.findChildren(QLabel)]
     assert any("状态变化" in text for text in state_labels), "历史卡片未显示状态变化"
-    shot_image.unlink(missing_ok=True)
+
+    # 20. 截图删除：每张缩略图有删除按钮，点击后索引 / 会话引用 / 文件一起清理
+    from heartbeat.history_window import ShotThumb
+
+    thumb = ShotThumb(str(shot_image))
+    removes = [b for b in thumb.findChildren(RaisedButton) if b.text() == "×"]
+    assert len(removes) == 1, "截图缩略图缺少删除按钮"
+    removed_paths: list[str] = []
+    thumb.deleteRequested.connect(removed_paths.append)
+    removes[0].click()
+    assert removed_paths and removed_paths[0] == str(shot_image), "截图删除信号未发出"
+
+    shot_key = controller.settings.screenshot_events[0]["path"]
+    controller.delete_shot(shot_key)
+    app.processEvents()
+    assert not shot_image.exists(), "删除截图后磁盘文件仍在"
+    assert controller.settings.screenshot_events == [], "删除截图后索引未清理"
+    assert all(
+        not s.get("screenshots")
+        for s in controller._sessions
+    ), "删除截图后会话引用未清理"
+    hw3 = controller._history_window
+    assert hw3._gallery._shots == [] and hw3._gallery.isHidden(), "删除截图后画廊仍显示"
+
+    # 21. 文件夹里手动删除图片：软件内自动隐藏并清理失效索引
+    orphan = Path(tempfile.gettempdir()) / "heartbeat_orphan_shot.png"
+    QImage(40, 30, QImage.Format.Format_RGB32).save(str(orphan))
+    controller.settings.screenshot_events = [
+        {"ts": int(_time.time()), "path": str(orphan), "bpm": 150}
+    ]
+    controller._history_window.set_shots(list(controller.settings.screenshot_events))
+    assert len(hw3._gallery._shots) == 1, "有效截图未渲染"
+    orphan.unlink(missing_ok=True)
+    controller.prune_missing_shots()
+    app.processEvents()
+    assert controller.settings.screenshot_events == [], "失效截图索引未清理"
+    assert hw3._gallery._shots == [] and hw3._gallery.isHidden(), "图片删除后软件仍显示"
+
+    # 22. 主界面心率检测开关：关闭后停止处理心率并清空当前显示
+    assert controller.window._hr_detect_switch.isChecked(), "心率检测默认应开启"
+    controller._set_hr_detection(False)
+    assert controller.settings.hr_detection_enabled is False, "检测开关未持久化"
+    controller._on_heart_rate(88, "心率服务", "AA:BB:CC:DD:EE:FF", "测试手环")
+    assert controller._session is None, "检测关闭后仍在记录心率会话"
+    assert controller.window._bpm.text() == "--", "检测关闭后主界面仍显示心率"
+    controller._set_hr_detection(True)
+    controller._on_heart_rate(88, "心率服务", "AA:BB:CC:DD:EE:FF", "测试手环")
+    assert controller.window._bpm.text() == "88", "检测开启后未恢复显示"
+    controller._finalize_session()
+
+    # 23. 重连阶段应重新开启扫描：ble 源码必须包含重连时的 _ensure_scan 调用
+    import inspect
+    from heartbeat.ble import BleWorker
+
+    ble_src = inspect.getsource(BleWorker._connection_loop)
+    assert "_ensure_scan()" in ble_src, "重连等待阶段未恢复设备扫描"
 
     controller.settings.capture_enabled = False
     controller._save_settings()
